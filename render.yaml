@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: lg-render-deploy
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /health
+    envVars:
+      - key: LOGIN_USER
+        sync: false
+      - key: LOGIN_PASSWORD
+        sync: false
+      - key: LG_API_URL
+        sync: false
+      - key: LG_BEARER_TOKEN
+        sync: false
+      - key: NODE_ENV
+        value: production
