@@ -242,7 +242,16 @@ function buildWelcomeEmailHtml(name, contactId, chatLink) {
 }
 
 // ── Mail transporter (SMTP) — returns null if not configured ─────────────────
+// When SMTP_HOST is SendGrid, we skip raw SMTP entirely and use SendGrid's
+// HTTPS API instead (port 443) — some PaaS hosts (Render included) block or
+// silently drop outbound port 587/465, which surfaces as a "Connection timeout"
+// even though the credentials are valid (verified working over plain SMTP from
+// a normal network). The HTTPS API avoids that class of problem altogether.
+const IS_SENDGRID = /sendgrid/i.test(process.env.SMTP_HOST || "");
+
 function createMailTransporter() {
+  if (IS_SENDGRID) return null; // handled via HTTPS API instead, see sendOneEmail()
+
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
@@ -264,6 +273,41 @@ function createMailTransporter() {
 
 const mailTransporter = createMailTransporter();
 
+function isMailConfigured() {
+  if (IS_SENDGRID) return !!process.env.SMTP_PASS; // SendGrid API key doubles as SMTP_PASS
+  return !!mailTransporter;
+}
+
+// Sends a single email via SendGrid's HTTPS API (v3 /mail/send).
+async function sendOneEmailViaSendGridApi({ fromName, fromAddress, to, subject, html }) {
+  await axios.post(
+    "https://api.sendgrid.com/v3/mail/send",
+    {
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: fromAddress, name: fromName },
+      subject,
+      content: [{ type: "text/html", value: html }],
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.SMTP_PASS}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 10000,
+    }
+  );
+}
+
+// Sends a single email via a generic SMTP transporter (any non-SendGrid host).
+async function sendOneEmailViaSmtp({ fromName, fromAddress, to, subject, html }) {
+  await mailTransporter.sendMail({
+    from: `"${fromName}" <${fromAddress}>`,
+    to,
+    subject,
+    html,
+  });
+}
+
 // Sends the "chat with us" email to every lead in `targets` (Score === 0 with
 // a valid, active email address). Uses Promise.allSettled so one bad address
 // doesn't block the rest.
@@ -272,7 +316,7 @@ async function sendQualificationEmails(req, targets) {
 
   if (targets.length === 0) return summary;
 
-  if (!mailTransporter) {
+  if (!isMailConfigured()) {
     summary.skippedReason = "SMTP not configured (set SMTP_HOST / SMTP_USER / SMTP_PASS).";
     console.warn(`  ⚠ Skipping ${targets.length} qualification email(s): ${summary.skippedReason}`);
     return summary;
@@ -280,6 +324,8 @@ async function sendQualificationEmails(req, targets) {
 
   const fromName    = process.env.EMAIL_FROM_NAME || "LG Lead Qualification";
   const fromAddress = process.env.EMAIL_FROM || process.env.SMTP_USER;
+  const subject     = "Thanks for your interest in LG — chat with us";
+  const sendOneEmail = IS_SENDGRID ? sendOneEmailViaSendGridApi : sendOneEmailViaSmtp;
 
   const results = await Promise.allSettled(
     targets.map((lead) => {
@@ -288,10 +334,11 @@ async function sendQualificationEmails(req, targets) {
       const email     = String(lead.email || "").trim();
       const chatLink  = buildChatLink(req, contactId);
 
-      return mailTransporter.sendMail({
-        from: `"${fromName}" <${fromAddress}>`,
+      return sendOneEmail({
+        fromName,
+        fromAddress,
         to: email,
-        subject: "Thanks for your interest in LG — chat with us",
+        subject,
         html: buildWelcomeEmailHtml(name, contactId, chatLink),
       });
     })
@@ -302,7 +349,7 @@ async function sendQualificationEmails(req, targets) {
       summary.sent += 1;
     } else {
       summary.failed += 1;
-      const message = r.reason?.message || String(r.reason);
+      const message = r.reason?.response?.data?.errors?.[0]?.message || r.reason?.message || String(r.reason);
       summary.lastError = message;
       console.error(`  ✗ Email to ${targets[i].email} failed:`, message);
     }
