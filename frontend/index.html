@@ -253,7 +253,7 @@
           (active email, no phone number) once a feed finishes uploading. It embeds the
           V2 chat bot widget on the Render platform.
         </div>
-        <iframe class="chat-frame" src="/chat?contactId=PREVIEW-0000" title="Chat Bot Preview"></iframe>
+        <iframe class="chat-frame" id="chatFrame" data-src="/chat?contactId=PREVIEW-0000" title="Chat Bot Preview"></iframe>
         <div class="chat-note">Preview only — real leads receive this page with their own Contact ID pre-filled.</div>
       </div>
     </div>
@@ -284,6 +284,13 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('panel-' + name).classList.add('active');
+
+      // Lazy-load the chat widget iframe only once, the first time this tab is opened
+      // (an iframe's src loads immediately even while its parent is display:none).
+      if (name === 'chat') {
+        const frame = document.getElementById('chatFrame');
+        if (frame && !frame.getAttribute('src')) frame.setAttribute('src', frame.dataset.src);
+      }
     }
 
     function setPipe(id, state) {
@@ -381,7 +388,7 @@
         if (data.success) {
           const es = data.emailSummary || {};
           const emailStatus = es.attempted
-            ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}`
+            ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}${es.lastError ? ` — ${es.lastError}` : ''}`
             : 'No Score = 0 leads with an active email';
 
           resultEl.className = "result success visible";

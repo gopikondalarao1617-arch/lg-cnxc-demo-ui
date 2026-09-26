@@ -254,6 +254,11 @@ function createMailTransporter() {
     port,
     secure: process.env.SMTP_SECURE === "true" || port === 465,
     auth: { user, pass },
+    // Fail fast instead of hanging the /upload request for minutes if the
+    // SMTP host is slow/unreachable/blocked (e.g. an outbound port issue).
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
   });
 }
 
@@ -263,7 +268,7 @@ const mailTransporter = createMailTransporter();
 // a valid, active email address). Uses Promise.allSettled so one bad address
 // doesn't block the rest.
 async function sendQualificationEmails(req, targets) {
-  const summary = { attempted: targets.length, sent: 0, failed: 0, skippedReason: null };
+  const summary = { attempted: targets.length, sent: 0, failed: 0, skippedReason: null, lastError: null };
 
   if (targets.length === 0) return summary;
 
@@ -297,7 +302,9 @@ async function sendQualificationEmails(req, targets) {
       summary.sent += 1;
     } else {
       summary.failed += 1;
-      console.error(`  ✗ Email to ${targets[i].email} failed:`, r.reason?.message || r.reason);
+      const message = r.reason?.message || String(r.reason);
+      summary.lastError = message;
+      console.error(`  ✗ Email to ${targets[i].email} failed:`, message);
     }
   });
 
