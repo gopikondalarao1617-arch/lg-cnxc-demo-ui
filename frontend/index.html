@@ -65,6 +65,13 @@
     .tab-panel { display: none; padding: 32px; }
     .tab-panel.active { display: block; }
 
+    .chat-frame {
+      width: 100%; height: 620px; border: 1px solid #e2e8f0; border-radius: 14px;
+    }
+    .chat-note {
+      font-size: 12px; color: #94a3b8; margin-top: 10px; text-align: center; font-weight: 500;
+    }
+
     .panel-title { font-size: 20px; font-weight: 800; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.3px; }
     .panel-sub   { font-size: 13px; color: #64748b; margin-bottom: 24px; font-weight: 500; line-height: 1.5; }
 
@@ -177,6 +184,7 @@
     <div class="card">
       <div class="tabs">
         <button class="tab active" onclick="switchTab('upload', this)">⬆&nbsp; Upload Feed</button>
+        <button class="tab" onclick="switchTab('chat', this)">💬&nbsp; Chat Bot</button>
       </div>
 
       <!-- ── Upload Panel ─────────────────────────────────────────────────── -->
@@ -214,6 +222,8 @@
           <span class="pipe-arrow">›</span>
           <div class="pipe-step" id="pipe-s3"><span class="pipe-icon">🗄️</span>S3</div>
           <span class="pipe-arrow">›</span>
+          <div class="pipe-step" id="pipe-email"><span class="pipe-icon">📧</span>Email</div>
+          <span class="pipe-arrow">›</span>
           <div class="pipe-step" id="pipe-done"><span class="pipe-icon">✅</span>Done</div>
         </div>
 
@@ -233,6 +243,18 @@
           <div class="result-title" id="resultTitle"></div>
           <div id="resultBody"></div>
         </div>
+      </div>
+
+      <!-- ── Chat Bot Preview Panel ───────────────────────────────────────── -->
+      <div class="tab-panel" id="panel-chat">
+        <div class="panel-title">Chat Bot Preview</div>
+        <div class="panel-sub">
+          This is the same page emailed to leads with <strong>Score&nbsp;=&nbsp;0</strong>
+          (active email, no phone number) once a feed finishes uploading. It embeds the
+          V2 chat bot widget on the Render platform.
+        </div>
+        <iframe class="chat-frame" src="/chat?contactId=PREVIEW-0000" title="Chat Bot Preview"></iframe>
+        <div class="chat-note">Preview only — real leads receive this page with their own Contact ID pre-filled.</div>
       </div>
     </div>
 
@@ -270,7 +292,7 @@
       if (state) el.classList.add(state);
     }
     function resetPipeline() {
-      ['pipe-file','pipe-score','pipe-s3','pipe-done'].forEach(id => setPipe(id, null));
+      ['pipe-file','pipe-score','pipe-s3','pipe-email','pipe-done'].forEach(id => setPipe(id, null));
     }
 
     function formatBytes(b) {
@@ -346,12 +368,22 @@
         const resp = await fetch("/upload", { method: "POST", body: formData });
         const data = await resp.json();
 
-        progressBar.style.width = "100%";
         setPipe('pipe-s3', 'done');
+        setPipe('pipe-email', 'active');
+        progressBar.style.width = "90%";
+        progressLabel.textContent = "Emailing Score = 0 leads…";
+
+        progressBar.style.width = "100%";
+        setPipe('pipe-email', 'done');
         setPipe('pipe-done', 'done');
         progressLabel.textContent = "Done";
 
         if (data.success) {
+          const es = data.emailSummary || {};
+          const emailStatus = es.attempted
+            ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}`
+            : 'No Score = 0 leads with an active email';
+
           resultEl.className = "result success visible";
           resultTitle.textContent = "✅ Upload complete";
           resultBody.innerHTML = `
@@ -359,6 +391,7 @@
             <div class="result-row"><span class="label">Records</span><span class="val">${data.recordCount}</span></div>
             <div class="result-row"><span class="label">Avg. Score</span><span class="val">${data.averageScore}</span></div>
             <div class="result-row"><span class="label">API</span><span class="val">${data.apiResult?.message || 'Uploaded successfully'}</span></div>
+            <div class="result-row"><span class="label">Chat invites</span><span class="val">${emailStatus}</span></div>
           `;
         } else {
           resultEl.className = "result error visible";

@@ -15,5 +15,21 @@ services:
         sync: false
       - key: LG_BEARER_TOKEN
         sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: LG Lead Qualification
+      - key: PUBLIC_BASE_URL
+        sync: false
       - key: NODE_ENV
         value: production

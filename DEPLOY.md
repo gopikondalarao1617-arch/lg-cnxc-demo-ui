@@ -2,7 +2,11 @@
 
 ## Prerequisites
 - A [Render](https://render.com) account (free tier works)
-- The `LG-Render-Deploy` folder (zipped, or pushed to a GitHub repo)
+- The `LG-Render-Deploy` folder pushed to a **public** Git repository (GitHub,
+  GitLab, or Bitbucket) — Render's Web Service setup does not support a raw
+  zip/file upload; it only offers **Git Provider** (OAuth-connected account),
+  **Public Git Repository** (just a URL, no account linking needed), or
+  **Existing Image** (a prebuilt Docker image from a registry)
 - The LG Leads API already deployed (`Demos/LG/cdk` → `cdk deploy`) so you have
   an `API_BASE_URL` and `BEARER_TOKEN` to use below
 
@@ -12,22 +16,25 @@
 
 1. Log in to [dashboard.render.com](https://dashboard.render.com)
 2. Click **New +** → **Web Service**
-3. Choose **Deploy an existing image or upload files**
-   — OR — connect a GitHub repo if you pushed the files there
+3. On the **Configure** step, pick a source:
+   - **Git Provider** — if you have a GitHub/GitLab/Bitbucket account linked
+     to Render with access to the repo
+   - **Public Git Repository** — paste the HTTPS clone URL of any public repo
+     containing `LG-Render-Deploy`'s contents at its root; no account linking
+     or org permissions required (use this if your org's GitHub/Bitbucket
+     access is restricted)
+   - **Existing Image** — deploy a prebuilt Docker image from a registry
+     (requires building/pushing an image yourself; not covered here)
 
 ---
 
-## Step 2 — Upload / connect the code
+## Step 2 — Push the code somewhere Render can read it
 
-### Option A: GitHub (recommended for re-deploys)
-1. Push the contents of `LG-Render-Deploy/` to a GitHub repository
-2. In Render → select **Build and deploy from a Git repository**
-3. Connect your GitHub account and select the repo
-4. Render will auto-detect `render.yaml` — click **Apply**
-
-### Option B: Manual upload
-1. Select **Upload files**
-2. Upload a zip of the `LG-Render-Deploy/` folder
+1. Push the contents of `LG-Render-Deploy/` to a Git repository (a small,
+   dedicated **public** repo works well if org access is restricted)
+2. In Render → select **Public Git Repository** and paste that repo's HTTPS
+   clone URL — OR select **Git Provider** and pick the repo if it's connected
+3. Render will auto-detect `render.yaml` — click **Apply**
 
 ---
 
@@ -59,6 +66,11 @@ Environment tab (or a local, git-ignored `.env` for testing).**
 | `LOGIN_PASSWORD` | `Demos/LG/cdk/.env` → `LOGIN_PASSWORD` |
 | `LG_API_URL` | `Demos/LG/cdk/.env` → `API_BASE_URL` (already ends in `/lg`) |
 | `LG_BEARER_TOKEN` | `Demos/LG/cdk/.env` → `BEARER_TOKEN` |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | Your SMTP provider (Gmail app password, SendGrid, SES SMTP, etc.) — leave unset to skip sending chat-bot invite emails |
+| `SMTP_USER` / `SMTP_PASS` | SMTP credentials for the above |
+| `EMAIL_FROM` / `EMAIL_FROM_NAME` | The "from" address/name leads see on the invite email |
+| `PUBLIC_BASE_URL` | Your Render service URL, e.g. `https://lg-render-deploy.onrender.com` (used to build the `/chat` link in emails — auto-detected from the request if left blank) |
+| `CHAT_WIDGET_SRC` / `CHAT_WIDGET_ORG_ID` / `CHAT_WIDGET_ID` / `CHAT_WIDGET_FLOW_ID` | Only needed if the V2 chat widget embed changes — defaults already match the current widget |
 | `NODE_ENV` | `production` |
 
 > ⚠️ Do NOT add `PORT` — Render sets it automatically.
@@ -92,6 +104,11 @@ Try uploading a sample `.xlsx` leads file and confirm:
 - ✅ Each row gets a computed `Score` (0–1)
 - ✅ The response shows the record count and average Score
 - ✅ `GET <API_BASE_URL>/report` (or the LG Leads API) reflects the new leads
+- ✅ Leads with `Score = 0` and a valid email receive a "chat with us" invite
+  (check the **Email** step in the pipeline / the `emailSummary` in the response)
+- ✅ `https://<your-service>.onrender.com/chat?contactId=<id>` loads the chat
+  widget without needing to sign in
+- ✅ The **Chat Bot** tab in the portal shows the same page in an iframe
 
 ---
 
