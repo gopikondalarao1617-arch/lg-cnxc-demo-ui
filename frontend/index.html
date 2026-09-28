@@ -65,13 +65,6 @@
     .tab-panel { display: none; padding: 32px; }
     .tab-panel.active { display: block; }
 
-    .chat-frame {
-      width: 100%; height: 620px; border: 1px solid #e2e8f0; border-radius: 14px;
-    }
-    .chat-note {
-      font-size: 12px; color: #94a3b8; margin-top: 10px; text-align: center; font-weight: 500;
-    }
-
     .panel-title { font-size: 20px; font-weight: 800; color: #0f172a; margin-bottom: 4px; letter-spacing: -0.3px; }
     .panel-sub   { font-size: 13px; color: #64748b; margin-bottom: 24px; font-weight: 500; line-height: 1.5; }
 
@@ -184,7 +177,7 @@
     <div class="card">
       <div class="tabs">
         <button class="tab active" onclick="switchTab('upload', this)">⬆&nbsp; Upload Feed</button>
-        <button class="tab" onclick="switchTab('chat', this)">💬&nbsp; Chat Bot</button>
+
       </div>
 
       <!-- ── Upload Panel ─────────────────────────────────────────────────── -->
@@ -245,17 +238,6 @@
         </div>
       </div>
 
-      <!-- ── Chat Bot Preview Panel ───────────────────────────────────────── -->
-      <div class="tab-panel" id="panel-chat">
-        <div class="panel-title">Chat Bot Preview</div>
-        <div class="panel-sub">
-          This is the same page emailed to leads with <strong>Score&nbsp;=&nbsp;0</strong>
-          (active email, no phone number) once a feed finishes uploading. It embeds the
-          V2 chat bot widget on the Render platform.
-        </div>
-        <iframe class="chat-frame" id="chatFrame" data-src="/chat?contactId=PREVIEW-0000" title="Chat Bot Preview"></iframe>
-        <div class="chat-note">Preview only — real leads receive this page with their own Contact ID pre-filled.</div>
-      </div>
     </div>
 
     <div class="footer">IXHello · LG Lead Qualification Demo</div>
@@ -284,13 +266,6 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('panel-' + name).classList.add('active');
-
-      // Lazy-load the chat widget iframe only once, the first time this tab is opened
-      // (an iframe's src loads immediately even while its parent is display:none).
-      if (name === 'chat') {
-        const frame = document.getElementById('chatFrame');
-        if (frame && !frame.getAttribute('src')) frame.setAttribute('src', frame.dataset.src);
-      }
     }
 
     function setPipe(id, state) {
