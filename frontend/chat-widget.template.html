@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LG Product Assistant — Widget</title>
+  <style>
+    /* This page only exists to host the chat widget script inside a small,
+       fixed-size iframe (see chat.template.html) so the widget's own
+       bottom-right floating panel fills that frame instead of floating in
+       the corner of the recipient's full browser window. */
+    html, body { margin: 0; padding: 0; height: 100%; background: transparent; }
+  </style>
+</head>
+<body>
+  <script
+    id="ixhello-chat-widget"
+    type="module"
+    src="{{WIDGET_SRC}}"
+    data-org-id="{{WIDGET_ORG_ID}}"
+    data-chat-widget-id="{{WIDGET_ID}}"
+    data-flow-id="{{WIDGET_FLOW_ID}}"
+  ></script>
+</body>
+</html>

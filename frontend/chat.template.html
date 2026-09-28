@@ -60,10 +60,9 @@
     .instructions strong { color: #0f172a; }
 
     .widget-wrap {
-      border: 1px dashed #e2e8f0; border-radius: 14px; padding: 22px 18px;
-      display: flex; align-items: center; justify-content: center; text-align: center;
-      color: #64748b; font-size: 13px; font-weight: 500; line-height: 1.6;
+      border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden;
     }
+    .widget-wrap iframe { width: 100%; height: 560px; border: 0; display: block; }
 
     .footer {
       text-align: center; margin-top: 18px;
@@ -95,7 +94,9 @@
         When the chat assistant asks for your Contact ID, please <strong>type or enter the Contact ID shown above</strong> so we can look up your details.
       </div>
 
-      <div class="widget-wrap" id="widgetWrap">💬 Click the chat icon in the bottom-right corner of this page to start talking with our virtual assistant.</div>
+      <div class="widget-wrap">
+        <iframe src="/chat-widget" title="LG virtual assistant"></iframe>
+      </div>
     </div>
 
     <div class="footer">IXHello · LG Product Assistant</div>
@@ -109,13 +110,5 @@
       }
     })();
   </script>
-  <script
-    id="ixhello-chat-widget"
-    type="module"
-    src="{{WIDGET_SRC}}"
-    data-org-id="{{WIDGET_ORG_ID}}"
-    data-chat-widget-id="{{WIDGET_ID}}"
-    data-flow-id="{{WIDGET_FLOW_ID}}"
-  ></script>
 </body>
 </html>

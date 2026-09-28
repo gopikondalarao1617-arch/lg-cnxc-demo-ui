@@ -38,7 +38,7 @@ function isAuthenticated(req) {
 
 // ── Auth middleware (protects all routes except /auth/*, /health, /chat) ──────
 app.use((req, res, next) => {
-  const open = ["/auth/login", "/auth/logout", "/auth/status", "/health", "/chat"];
+  const open = ["/auth/login", "/auth/logout", "/auth/status", "/health", "/chat", "/chat-widget"];
   if (open.includes(req.path) || req.path.startsWith("/auth/")) return next();
   if (isAuthenticated(req)) return next();
   if (req.headers.accept?.includes("text/html")) {
@@ -433,6 +433,21 @@ app.get("/chat", (req, res) => {
 
   const html = chatTemplate
     .replace(/{{CONTACT_ID}}/g, contactId)
+    .replace(/{{WIDGET_SRC}}/g, escapeHtml(CHAT_WIDGET_SRC))
+    .replace(/{{WIDGET_ORG_ID}}/g, escapeHtml(CHAT_WIDGET_ORG_ID))
+    .replace(/{{WIDGET_ID}}/g, escapeHtml(CHAT_WIDGET_ID))
+    .replace(/{{WIDGET_FLOW_ID}}/g, escapeHtml(CHAT_WIDGET_FLOW_ID));
+
+  res.set("Content-Type", "text/html").send(html);
+});
+
+// ── GET /chat-widget — bare widget-only page, embedded via iframe by ─────────
+// chat.template.html so the widget's own floating bottom-right panel fills a
+// small, fixed-size frame instead of floating in the corner of the leads'
+// full browser window (matches how the portal's "Chat Bot Preview" tab looks).
+const chatWidgetTemplate = fs.readFileSync(path.join(__dirname, "frontend", "chat-widget.template.html"), "utf8");
+app.get("/chat-widget", (req, res) => {
+  const html = chatWidgetTemplate
     .replace(/{{WIDGET_SRC}}/g, escapeHtml(CHAT_WIDGET_SRC))
     .replace(/{{WIDGET_ORG_ID}}/g, escapeHtml(CHAT_WIDGET_ORG_ID))
     .replace(/{{WIDGET_ID}}/g, escapeHtml(CHAT_WIDGET_ID))
