@@ -229,7 +229,17 @@ function buildWelcomeEmailHtml(name, contactId, chatLink) {
     '<div style="padding:28px;">',
     '<p style="font-size:16px;color:#0f172a;margin:0 0 16px;">Hi ' + safeName + ',</p>',
     '<p style="font-size:14px;color:#334155;line-height:1.6;margin:0 0 16px;">Thank you for showing interest in LG products! We would love to help you find the right solution &mdash; our virtual assistant is ready to chat with you now.</p>',
-    '<p style="text-align:center;margin:24px 0;"><a href="' + safeLink + '" style="background:linear-gradient(135deg,#c8102e,#e63950);color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;">Chat with us now</a></p>',
+    // Table-based "bulletproof" button: Outlook desktop (Word rendering engine)
+    // strips unsupported CSS (linear-gradient, display:inline-block + padding
+    // on <a>) which silently collapses the old anchor-only button to nothing
+    // visible, even though the underlying <a href> link tracking still shows
+    // up on hover. A solid bgcolor on a <table>/<td> renders reliably there.
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto;"><tr><td bgcolor="#c8102e" style="border-radius:10px;">',
+    '<a href="' + safeLink + '" style="background-color:#c8102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Chat with us now</a>',
+    '</td></tr></table>',
+    // Plain-text fallback link so the URL is always visible/clickable even if
+    // an email client strips all styling from the button above.
+    '<p style="text-align:center;font-size:12px;margin:0 0 16px;"><a href="' + safeLink + '" style="color:#c8102e;word-break:break-all;">' + safeLink + '</a></p>',
     '<div style="background:#fff5f5;border:1px dashed #fecaca;border-radius:10px;padding:14px 18px;margin:0 0 16px;">',
     '<div style="font-size:11px;font-weight:700;color:#c8102e;text-transform:uppercase;letter-spacing:0.06em;">Your Contact ID</div>',
     '<div style="font-size:20px;font-weight:800;color:#0f172a;margin-top:4px;">' + safeContactId + '</div>',
