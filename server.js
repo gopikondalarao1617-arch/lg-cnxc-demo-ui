@@ -250,7 +250,15 @@ async function pushScoredFileToSftp(buffer, filename) {
     host: process.env.SFTP_HOST,
     port: Number(process.env.SFTP_PORT || 22),
     username: process.env.SFTP_USERNAME,
-    readyTimeout: 10000,
+    readyTimeout: 15000,
+    // The IC Dial SFTP server (CompleteFTP) times out mid-handshake when
+    // ssh2 negotiates "diffie-hellman-group-exchange-sha256" (requires an
+    // extra GEX group-request round trip the server never replies to,
+    // surfacing as "getConnection: Timed out while waiting for handshake" or
+    // an ECONNRESET). Forcing group14-sha256 instead — which the server also
+    // advertises — skips that exchange entirely. Verified working against
+    // 185.209.152.129 (see test-sftp.js).
+    algorithms: { kex: ["diffie-hellman-group14-sha256"] },
   };
   if (process.env.SFTP_PRIVATE_KEY) {
     connectOptions.privateKey = process.env.SFTP_PRIVATE_KEY;
