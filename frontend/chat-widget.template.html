@@ -13,6 +13,14 @@
   </style>
 </head>
 <body>
+  <!-- data-user-endpoint carries "contactId:<id>" (built server-side in
+       server.js's /chat-widget route from ?contactId=) so the underlying
+       yflow's userEndpoint contract input receives it and can route straight
+       to a contact-ID lookup instead of asking the lead for it. This is a
+       best-effort convention (matches the naming of the other data-* attrs
+       below) - not officially documented for this widget. If it turns out
+       unsupported, the flow's existing "ask for Contact ID" fallback still
+       works, so there's no regression either way. -->
   <script
     id="ixhello-chat-widget"
     type="module"
@@ -20,6 +28,7 @@
     data-org-id="{{WIDGET_ORG_ID}}"
     data-chat-widget-id="{{WIDGET_ID}}"
     data-flow-id="{{WIDGET_FLOW_ID}}"
+    data-user-endpoint="{{USER_ENDPOINT}}"
   ></script>
 </body>
 </html>

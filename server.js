@@ -532,6 +532,7 @@ app.get("/chat", (req, res) => {
 
   const html = chatTemplate
     .replace(/{{CONTACT_ID}}/g, contactId)
+    .replace(/{{CONTACT_ID_URL}}/g, encodeURIComponent(rawContactId.slice(0, 100)))
     .replace(/{{WIDGET_SRC}}/g, escapeHtml(CHAT_WIDGET_SRC))
     .replace(/{{WIDGET_ORG_ID}}/g, escapeHtml(CHAT_WIDGET_ORG_ID))
     .replace(/{{WIDGET_ID}}/g, escapeHtml(CHAT_WIDGET_ID))
@@ -544,13 +545,24 @@ app.get("/chat", (req, res) => {
 // chat.template.html so the widget's own floating bottom-right panel fills a
 // small, fixed-size frame instead of floating in the corner of the leads'
 // full browser window (matches how the portal's "Chat Bot Preview" tab looks).
+//
+// Also forwards ?contactId= (if present) into the widget as a
+// "contactId:<id>" userEndpoint value — the yflow's checkPhone branch
+// recognises that prefix and skips straight to a contact-ID lookup instead of
+// verbally/textually asking the lead for it. Best-effort: if the widget
+// doesn't support data-user-endpoint, the flow falls back to asking for the
+// Contact ID as before (no regression either way).
 const chatWidgetTemplate = fs.readFileSync(path.join(__dirname, "frontend", "chat-widget.template.html"), "utf8");
 app.get("/chat-widget", (req, res) => {
+  const rawContactId = typeof req.query.contactId === "string" ? req.query.contactId.slice(0, 100) : "";
+  const userEndpoint = rawContactId ? `contactId:${rawContactId}` : "";
+
   const html = chatWidgetTemplate
     .replace(/{{WIDGET_SRC}}/g, escapeHtml(CHAT_WIDGET_SRC))
     .replace(/{{WIDGET_ORG_ID}}/g, escapeHtml(CHAT_WIDGET_ORG_ID))
     .replace(/{{WIDGET_ID}}/g, escapeHtml(CHAT_WIDGET_ID))
-    .replace(/{{WIDGET_FLOW_ID}}/g, escapeHtml(CHAT_WIDGET_FLOW_ID));
+    .replace(/{{WIDGET_FLOW_ID}}/g, escapeHtml(CHAT_WIDGET_FLOW_ID))
+    .replace(/{{USER_ENDPOINT}}/g, escapeHtml(userEndpoint));
 
   res.set("Content-Type", "text/html").send(html);
 });
