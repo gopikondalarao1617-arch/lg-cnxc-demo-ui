@@ -193,29 +193,37 @@
     .btn-refresh:hover { border-color: #c8102e; color: #c8102e; }
 
     /* ── Call Reports tab ─────────────────────────────────────────────────── */
-    .report-search {
-      width: 100%; padding: 11px 14px; border: 1.5px solid #e2e8f0;
-      border-radius: 10px; font-size: 13px; margin-bottom: 14px; outline: none;
-      transition: border-color 0.2s;
+    .report-filters { display: flex; gap: 10px; margin-bottom: 14px; }
+    .report-search, .report-date {
+      padding: 11px 14px; border: 1.5px solid #e2e8f0;
+      border-radius: 10px; font-size: 13px; outline: none;
+      transition: border-color 0.2s; font-family: inherit;
     }
-    .report-search:focus { border-color: #c8102e; }
-    .report-list { max-height: 520px; overflow-y: auto; }
-    .report-card {
-      border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px;
-      background: #f8fafc; margin-bottom: 12px;
+    .report-search { flex: 1; min-width: 0; }
+    .report-date { flex-shrink: 0; }
+    .report-search:focus, .report-date:focus { border-color: #c8102e; }
+    .report-table-wrap { max-height: 520px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 14px; }
+    .report-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .report-table th {
+      position: sticky; top: 0; background: #f8fafc; text-align: left;
+      padding: 10px 12px; font-size: 10.5px; font-weight: 700; color: #64748b;
+      text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
     }
-    .report-card:last-child { margin-bottom: 0; }
-    .report-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-    .report-name { font-size: 14px; font-weight: 800; color: #0f172a; }
-    .report-meta { font-size: 11px; color: #94a3b8; margin-top: 3px; }
-    .report-badges { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+    .report-table td {
+      padding: 10px 12px; border-bottom: 1px solid #f1f5f9; color: #334155;
+      vertical-align: top;
+    }
+    .report-table tr:last-child td { border-bottom: none; }
+    .report-table tr:hover td { background: #fafbfc; }
+    .report-table .col-summary { min-width: 260px; line-height: 1.5; }
+    .report-table .col-name { font-weight: 700; color: #0f172a; white-space: nowrap; }
+    .report-table .col-ts { white-space: nowrap; color: #94a3b8; font-size: 11.5px; }
     .badge.hot          { background: #fee2e2; color: #991b1b; }
     .badge.warm         { background: #fef3c7; color: #92400e; }
     .badge.nurture      { background: #dbeafe; color: #1e40af; }
     .badge.disqualified,
     .badge.incomplete   { background: #f1f5f9; color: #64748b; }
-    .report-summary { font-size: 12.5px; color: #334155; line-height: 1.6; margin-top: 10px; }
-    .report-summary .label { font-weight: 700; color: #64748b; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
 
     /* ── Footer ────────────────────────────────────────────────────────────── */
     .footer {
@@ -337,11 +345,13 @@
       <div class="tab-panel" id="panel-reports">
         <div class="panel-title">Call Reports</div>
         <div class="panel-sub">
-          Call summaries logged by the V2 chat/voice bot after every completed
-          conversation (from the report Lambda's <code>lg-report.xlsx</code>).
+          Call summaries logged by the V2 chat/voice bot after every completed conversation.
         </div>
 
-        <input class="report-search" id="reportSearch" type="text" placeholder="Search by name, contact ID or lead ID…" />
+        <div class="report-filters">
+          <input class="report-search" id="reportSearch" type="text" placeholder="Search by name, contact ID or lead ID…" />
+          <input class="report-date" id="reportDate" type="date" />
+        </div>
 
         <div id="reportListArea">
           <div class="status-empty">Loading…</div>
@@ -376,6 +386,7 @@
     const btnRefreshSftp = document.getElementById("btnRefreshSftp");
     const reportListArea = document.getElementById("reportListArea");
     const reportSearch   = document.getElementById("reportSearch");
+    const reportDate     = document.getElementById("reportDate");
     const btnRefreshReports = document.getElementById("btnRefreshReports");
 
     let selectedFile = null;
@@ -513,36 +524,64 @@
       return "incomplete";
     }
 
+    function localDateInputValue(date) {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    // Default to today's date - the reports list only shows today's calls
+    // until the date filter is cleared or changed.
+    reportDate.value = localDateInputValue(new Date());
+
     function renderReports(list) {
       if (list.length === 0) {
         reportListArea.innerHTML = `<div class="status-empty">No call reports found.</div>`;
         return;
       }
-      reportListArea.innerHTML = `<div class="report-list">${list.map((r) => `
-        <div class="report-card">
-          <div class="report-head">
-            <div>
-              <div class="report-name">${escapeHtml(r.customerName || "Unknown")}</div>
-              <div class="report-meta">Contact ID ${escapeHtml(r.contactId || "—")} &middot; Lead ID ${escapeHtml(r.leadId || "—")} &middot; ${r.timestamp ? new Date(r.timestamp).toLocaleString() : "—"}</div>
-            </div>
-            <div class="report-badges">
-              <span class="badge ${tierBadgeClass(r.qualification)}">${escapeHtml(r.qualification || "—")}</span>
-              <span class="badge pending">BANT ${escapeHtml(r.bantScore || "—")}</span>
-            </div>
-          </div>
-          <div class="report-summary"><span class="label">Call Summary</span>${escapeHtml(r.callSummary || "Not captured")}</div>
+      reportListArea.innerHTML = `
+        <div class="report-table-wrap">
+          <table class="report-table">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Contact ID</th>
+                <th>Customer Name</th>
+                <th>Lead ID</th>
+                <th>Qualification</th>
+                <th>BANT Score</th>
+                <th>Call Summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((r) => `
+                <tr>
+                  <td class="col-ts">${r.timestamp ? new Date(r.timestamp).toLocaleString() : "—"}</td>
+                  <td>${escapeHtml(r.contactId || "—")}</td>
+                  <td class="col-name">${escapeHtml(r.customerName || "Unknown")}</td>
+                  <td>${escapeHtml(r.leadId || "—")}</td>
+                  <td><span class="badge ${tierBadgeClass(r.qualification)}">${escapeHtml(r.qualification || "—")}</span></td>
+                  <td>${escapeHtml(r.bantScore || "—")}</td>
+                  <td class="col-summary">${escapeHtml(r.callSummary || "Not captured")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
         </div>
-      `).join("")}</div>`;
+      `;
     }
 
-    function applyReportSearch() {
+    function applyReportFilters() {
       const q = reportSearch.value.trim().toLowerCase();
-      if (!q) return renderReports(allReports);
-      renderReports(allReports.filter((r) =>
-        (r.customerName || "").toLowerCase().includes(q) ||
-        (r.contactId || "").toLowerCase().includes(q) ||
-        (r.leadId || "").toLowerCase().includes(q)
-      ));
+      const dateFilter = reportDate.value; // "YYYY-MM-DD" or "" if cleared
+      const filtered = allReports.filter((r) => {
+        if (dateFilter && r.timestamp && localDateInputValue(new Date(r.timestamp)) !== dateFilter) return false;
+        if (!q) return true;
+        return (r.customerName || "").toLowerCase().includes(q) ||
+          (r.contactId || "").toLowerCase().includes(q) ||
+          (r.leadId || "").toLowerCase().includes(q);
+      });
+      renderReports(filtered);
     }
 
     async function loadReports() {
@@ -552,13 +591,14 @@
         const data = await resp.json();
         if (!data.success) throw new Error(data.error || "Failed to load reports");
         allReports = data.reports || [];
-        applyReportSearch();
+        applyReportFilters();
       } catch (err) {
         reportListArea.innerHTML = `<div class="status-empty">Failed to load reports: ${escapeHtml(err.message)}</div>`;
       }
     }
 
-    reportSearch.addEventListener("input", applyReportSearch);
+    reportSearch.addEventListener("input", applyReportFilters);
+    reportDate.addEventListener("change", applyReportFilters);
     btnRefreshReports.addEventListener("click", loadReports);
 
     btnSend.addEventListener("click", async () => {
