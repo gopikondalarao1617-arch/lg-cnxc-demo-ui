@@ -514,12 +514,67 @@ async function uploadViaApi(leads, rawFileBase64, rawFileName) {
   return response.data;
 }
 
+// ── Fetch call reports via the LG Leads API (→ report Lambda, reads S3) ─────
+// GET /lg/report returns { format: "xlsx-base64", filename, data } - the
+// report workbook written by every sendFeedOutcome/log_disconnect_report
+// call from the yflow. Parsed here into plain row objects for the portal's
+// "Call Reports" tab, newest first.
+async function fetchCallReports() {
+  const apiUrl = process.env.LG_API_URL;
+  const token = process.env.LG_BEARER_TOKEN;
+  if (!apiUrl) throw new Error("LG_API_URL env var is not set.");
+  if (!token) throw new Error("LG_BEARER_TOKEN env var is not set.");
+
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/report`;
+  const response = await axios.get(endpoint, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 30000,
+  });
+
+  const { data } = response.data || {};
+  if (!data) return [];
+
+  const buffer = Buffer.from(data, "base64");
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  // Newest first - Timestamp column may be a JS Date (exceljs date cell) or
+  // an ISO string depending on how the row was written.
+  return rows
+    .map((row) => ({
+      contactId: String(row["Contact ID"] ?? "").trim(),
+      customerName: String(row["Customer Name"] ?? "").trim(),
+      leadId: String(row["Lead ID"] ?? "").trim(),
+      qualification: String(row["Lead Qualification"] ?? "").trim(),
+      bantScore: String(row["BANT Score"] ?? "").trim(),
+      callSummary: String(row["Call Summary"] ?? "").trim(),
+      timestamp: row["Timestamp"] instanceof Date ? row["Timestamp"].toISOString() : String(row["Timestamp"] ?? ""),
+    }))
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+}
+
 // ── GET /health ───────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
 // ── GET /sftp/status — last SFTP push result, for the portal's SFTP tab ─────
 app.get("/sftp/status", (req, res) => {
   res.json({ configured: isSftpConfigured(), last: lastSftpStatus });
+});
+
+// ── GET /reports — call summaries from the report Lambda, for the portal's ──
+// "Call Reports" tab.
+app.get("/reports", async (req, res) => {
+  try {
+    const reports = await fetchCallReports();
+    res.json({ success: true, reports });
+  } catch (err) {
+    console.error("✗ Failed to fetch call reports:", err.response?.data || err.message);
+    res.status(502).json({
+      success: false,
+      error: err.response?.data?.error || err.message,
+    });
+  }
 });
 
 // ── GET /chat — public chat-bot landing page (no login required) ─────────────

@@ -192,6 +192,31 @@
     }
     .btn-refresh:hover { border-color: #c8102e; color: #c8102e; }
 
+    /* ── Call Reports tab ─────────────────────────────────────────────────── */
+    .report-search {
+      width: 100%; padding: 11px 14px; border: 1.5px solid #e2e8f0;
+      border-radius: 10px; font-size: 13px; margin-bottom: 14px; outline: none;
+      transition: border-color 0.2s;
+    }
+    .report-search:focus { border-color: #c8102e; }
+    .report-list { max-height: 520px; overflow-y: auto; }
+    .report-card {
+      border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px;
+      background: #f8fafc; margin-bottom: 12px;
+    }
+    .report-card:last-child { margin-bottom: 0; }
+    .report-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .report-name { font-size: 14px; font-weight: 800; color: #0f172a; }
+    .report-meta { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+    .report-badges { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+    .badge.hot          { background: #fee2e2; color: #991b1b; }
+    .badge.warm         { background: #fef3c7; color: #92400e; }
+    .badge.nurture      { background: #dbeafe; color: #1e40af; }
+    .badge.disqualified,
+    .badge.incomplete   { background: #f1f5f9; color: #64748b; }
+    .report-summary { font-size: 12.5px; color: #334155; line-height: 1.6; margin-top: 10px; }
+    .report-summary .label { font-weight: 700; color: #64748b; text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; display: block; margin-bottom: 3px; }
+
     /* ── Footer ────────────────────────────────────────────────────────────── */
     .footer {
       text-align: center; margin-top: 18px;
@@ -219,6 +244,7 @@
       <div class="tabs">
         <button class="tab active" onclick="switchTab('upload', this)">⬆&nbsp; Upload Feed</button>
         <button class="tab" onclick="switchTab('sftp', this)">📡&nbsp; SFTP</button>
+        <button class="tab" onclick="switchTab('reports', this)">📋&nbsp; Call Reports</button>
       </div>
 
       <!-- ── Upload Panel ─────────────────────────────────────────────────── -->
@@ -307,6 +333,23 @@
         <button class="btn-refresh" id="btnRefreshSftp">↻ Refresh status</button>
       </div>
 
+      <!-- ── Call Reports Panel ───────────────────────────────────────────── -->
+      <div class="tab-panel" id="panel-reports">
+        <div class="panel-title">Call Reports</div>
+        <div class="panel-sub">
+          Call summaries logged by the V2 chat/voice bot after every completed
+          conversation (from the report Lambda's <code>lg-report.xlsx</code>).
+        </div>
+
+        <input class="report-search" id="reportSearch" type="text" placeholder="Search by name, contact ID or lead ID…" />
+
+        <div id="reportListArea">
+          <div class="status-empty">Loading…</div>
+        </div>
+
+        <button class="btn-refresh" id="btnRefreshReports">↻ Refresh reports</button>
+      </div>
+
     </div>
 
     <div class="footer">IXHello · LG Lead Qualification Demo</div>
@@ -331,8 +374,12 @@
     const gotoSftpTab   = document.getElementById("gotoSftpTab");
     const sftpStatusArea = document.getElementById("sftpStatusArea");
     const btnRefreshSftp = document.getElementById("btnRefreshSftp");
+    const reportListArea = document.getElementById("reportListArea");
+    const reportSearch   = document.getElementById("reportSearch");
+    const btnRefreshReports = document.getElementById("btnRefreshReports");
 
     let selectedFile = null;
+    let allReports = [];
 
     function switchTab(name, btn) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -340,6 +387,7 @@
       btn.classList.add('active');
       document.getElementById('panel-' + name).classList.add('active');
       if (name === 'sftp') loadSftpStatus();
+      if (name === 'reports') loadReports();
     }
 
     function setPipe(id, state) {
@@ -445,6 +493,73 @@
     }
 
     btnRefreshSftp.addEventListener("click", loadSftpStatus);
+
+    // ── Call Reports ──────────────────────────────────────────────────────
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function tierBadgeClass(tier) {
+      const t = String(tier || "").toUpperCase();
+      if (t === "HOT") return "hot";
+      if (t === "WARM") return "warm";
+      if (t === "NURTURE") return "nurture";
+      if (t === "DISQUALIFIED") return "disqualified";
+      return "incomplete";
+    }
+
+    function renderReports(list) {
+      if (list.length === 0) {
+        reportListArea.innerHTML = `<div class="status-empty">No call reports found.</div>`;
+        return;
+      }
+      reportListArea.innerHTML = `<div class="report-list">${list.map((r) => `
+        <div class="report-card">
+          <div class="report-head">
+            <div>
+              <div class="report-name">${escapeHtml(r.customerName || "Unknown")}</div>
+              <div class="report-meta">Contact ID ${escapeHtml(r.contactId || "—")} &middot; Lead ID ${escapeHtml(r.leadId || "—")} &middot; ${r.timestamp ? new Date(r.timestamp).toLocaleString() : "—"}</div>
+            </div>
+            <div class="report-badges">
+              <span class="badge ${tierBadgeClass(r.qualification)}">${escapeHtml(r.qualification || "—")}</span>
+              <span class="badge pending">BANT ${escapeHtml(r.bantScore || "—")}</span>
+            </div>
+          </div>
+          <div class="report-summary"><span class="label">Call Summary</span>${escapeHtml(r.callSummary || "Not captured")}</div>
+        </div>
+      `).join("")}</div>`;
+    }
+
+    function applyReportSearch() {
+      const q = reportSearch.value.trim().toLowerCase();
+      if (!q) return renderReports(allReports);
+      renderReports(allReports.filter((r) =>
+        (r.customerName || "").toLowerCase().includes(q) ||
+        (r.contactId || "").toLowerCase().includes(q) ||
+        (r.leadId || "").toLowerCase().includes(q)
+      ));
+    }
+
+    async function loadReports() {
+      reportListArea.innerHTML = `<div class="status-empty">Loading…</div>`;
+      try {
+        const resp = await fetch("/reports");
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || "Failed to load reports");
+        allReports = data.reports || [];
+        applyReportSearch();
+      } catch (err) {
+        reportListArea.innerHTML = `<div class="status-empty">Failed to load reports: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    reportSearch.addEventListener("input", applyReportSearch);
+    btnRefreshReports.addEventListener("click", loadReports);
 
     btnSend.addEventListener("click", async () => {
       if (!selectedFile) return;
