@@ -19,6 +19,7 @@
     "express": "^5.2.1",
     "multer": "^2.2.0",
     "nodemailer": "^10.0.10",
+    "ssh2-sftp-client": "^12.1.1",
     "xlsx": "^0.18.5"
   }
 }

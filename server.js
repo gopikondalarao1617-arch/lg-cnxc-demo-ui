@@ -1,11 +1,12 @@
-const express    = require("express");
-const multer     = require("multer");
-const path       = require("path");
-const fs         = require("fs");
-const crypto     = require("crypto");
-const XLSX       = require("xlsx");
-const axios      = require("axios");
-const nodemailer = require("nodemailer");
+const express       = require("express");
+const multer        = require("multer");
+const path          = require("path");
+const fs            = require("fs");
+const crypto        = require("crypto");
+const XLSX          = require("xlsx");
+const axios         = require("axios");
+const nodemailer    = require("nodemailer");
+const SftpClient    = require("ssh2-sftp-client");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const app  = express();
@@ -21,6 +22,10 @@ const CHAT_WIDGET_FLOW_ID = process.env.CHAT_WIDGET_FLOW_ID || "bf0a4773-1eec-45
 const LOGIN_USER     = process.env.LOGIN_USER     || "ixHello";
 const LOGIN_PASSWORD = process.env.LOGIN_PASSWORD || "lgleads";
 const sessions = new Map(); // token → { user, createdAt }
+
+// In-memory snapshot of the most recent SFTP push, so the "SFTP" tab in the
+// portal has something to show (this is a single-instance demo app - no DB).
+let lastSftpStatus = null;
 
 function parseCookies(req) {
   const out = {};
@@ -193,6 +198,78 @@ function computeScore(values) {
   if (!isBlankExternalUrl(g)) filled += 1;
 
   return filled / 4;
+}
+
+// ── SFTP push (scored file → IC Dial) ─────────────────────────────────────────
+//
+// After leads are scored and stored to S3, the same rows (Score column
+// included — mandatory for the IC Dial campaign-calling logic) are rebuilt
+// into a fresh .xlsx workbook and pushed via SFTP so the dial campaign can
+// pick it up. All connection details come from env vars (filled in Render's
+// Environment tab); if SFTP_HOST isn't set this is skipped without failing
+// the upload (mirrors how email sending is optional/best-effort).
+function isSftpConfigured() {
+  return !!(process.env.SFTP_HOST && process.env.SFTP_USERNAME);
+}
+
+// Builds a fresh .xlsx workbook from the scored lead records. Uses
+// json_to_sheet so column order follows each object's own key order — Score
+// was appended last when the records were built in parseXlsx(), so it stays
+// the last column here too, matching the IC Dial requirement.
+function leadsToXlsxBuffer(leads) {
+  const sheet = XLSX.utils.json_to_sheet(leads);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "Leads");
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+}
+
+// Timestamps the outgoing filename so repeated campaign drops never collide
+// on the SFTP server, while keeping the original name recognisable.
+function buildSftpFileName(originalFilename) {
+  const ext = path.extname(originalFilename) || ".xlsx";
+  const base = path.basename(originalFilename, ext).replace(/[^A-Za-z0-9._-]/g, "_");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `${base}_Scored_${stamp}${ext}`;
+}
+
+// Pushes the scored workbook to the configured SFTP server. Never throws —
+// returns a summary object instead, so a bad/unreachable SFTP target doesn't
+// take down the rest of the /upload pipeline (S3 + email still complete).
+async function pushScoredFileToSftp(buffer, filename) {
+  if (!isSftpConfigured()) {
+    return {
+      success: false,
+      skippedReason: "SFTP not configured (set SFTP_HOST / SFTP_USERNAME / SFTP_PASSWORD or SFTP_PRIVATE_KEY).",
+    };
+  }
+
+  const remoteDir = (process.env.SFTP_REMOTE_DIR || "/").replace(/\/+$/, "") || "";
+  const remotePath = `${remoteDir}/${filename}`;
+
+  const connectOptions = {
+    host: process.env.SFTP_HOST,
+    port: Number(process.env.SFTP_PORT || 22),
+    username: process.env.SFTP_USERNAME,
+    readyTimeout: 10000,
+  };
+  if (process.env.SFTP_PRIVATE_KEY) {
+    connectOptions.privateKey = process.env.SFTP_PRIVATE_KEY;
+    if (process.env.SFTP_PASSPHRASE) connectOptions.passphrase = process.env.SFTP_PASSPHRASE;
+  } else {
+    connectOptions.password = process.env.SFTP_PASSWORD;
+  }
+
+  const client = new SftpClient();
+  try {
+    await client.connect(connectOptions);
+    await client.put(buffer, remotePath);
+    return { success: true, host: process.env.SFTP_HOST, remotePath };
+  } catch (err) {
+    console.error("  ✗ SFTP push failed:", err.message);
+    return { success: false, host: process.env.SFTP_HOST, remotePath, error: err.message };
+  } finally {
+    try { await client.end(); } catch { /* already disconnected */ }
+  }
 }
 
 // ── Email helpers ─────────────────────────────────────────────────────────────
@@ -397,7 +474,10 @@ function parseXlsx(buffer) {
 }
 
 // ── Upload leads via the LG Leads API (→ S3, through the upload Lambda) ─────
-async function uploadViaApi(leads) {
+// Optionally also forwards the original file's raw bytes (base64) + its
+// filename so the Lambda can archive the unmodified source feed under
+// s3://<bucket>/raw/ alongside the parsed/scored leads.json.
+async function uploadViaApi(leads, rawFileBase64, rawFileName) {
   const apiUrl = process.env.LG_API_URL;
   const token = process.env.LG_BEARER_TOKEN;
   if (!apiUrl) throw new Error("LG_API_URL env var is not set.");
@@ -406,9 +486,15 @@ async function uploadViaApi(leads) {
   const endpoint = `${apiUrl.replace(/\/$/, "")}/uploadLeads`;
   console.log(`  → POST ${endpoint} (${leads.length} lead(s))`);
 
+  const body = { leads };
+  if (rawFileBase64) {
+    body.rawFile = rawFileBase64;
+    body.rawFileName = rawFileName;
+  }
+
   const response = await axios.post(
     endpoint,
-    { leads },
+    body,
     {
       headers: {
         "Content-Type": "application/json",
@@ -422,6 +508,11 @@ async function uploadViaApi(leads) {
 
 // ── GET /health ───────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+// ── GET /sftp/status — last SFTP push result, for the portal's SFTP tab ─────
+app.get("/sftp/status", (req, res) => {
+  res.json({ configured: isSftpConfigured(), last: lastSftpStatus });
+});
 
 // ── GET /chat — public chat-bot landing page (no login required) ─────────────
 // This is the link emailed to leads, and is also embedded (via iframe) in the
@@ -479,12 +570,29 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 
   try {
-    const apiResult = await uploadViaApi(leads);
+    // 1. Store the scored leads (JSON) + the raw original file bytes to S3,
+    //    via the upload Lambda (single API call handles both).
+    const rawFileBase64 = req.file.buffer.toString("base64");
+    const apiResult = await uploadViaApi(leads, rawFileBase64, filename);
     const scores = leads.map((l) => l.Score);
     const averageScore = scores.reduce((a, b) => a + b, 0) / scores.length;
 
-    // Score === 0 means both DirectPhone and MobilePhone are blank — target
-    // those leads with an active (valid, non-blank) email for the chat-bot invite.
+    // 2. Rebuild the scored rows into a workbook and push it via SFTP so the
+    //    IC Dial campaign-calling system can pick it up (Score column is
+    //    mandatory there). Best-effort: failures don't fail the upload.
+    const sftpFileName = buildSftpFileName(filename);
+    const scoredBuffer = leadsToXlsxBuffer(leads);
+    const sftpSummary = await pushScoredFileToSftp(scoredBuffer, sftpFileName);
+    lastSftpStatus = {
+      ...sftpSummary,
+      filename: sftpFileName,
+      recordCount: leads.length,
+      uploadedAt: new Date().toISOString(),
+    };
+
+    // 3. Score === 0 means both DirectPhone and MobilePhone are blank —
+    //    target those leads with an active (valid, non-blank) email for the
+    //    chat-bot invite.
     const emailTargets = leads.filter((l) => l.Score === 0 && isValidEmail(l.email));
     const emailSummary = await sendQualificationEmails(req, emailTargets);
 
@@ -494,6 +602,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       recordCount: leads.length,
       averageScore: Number(averageScore.toFixed(2)),
       apiResult,
+      sftpSummary: lastSftpStatus,
       emailSummary,
     });
   } catch (err) {

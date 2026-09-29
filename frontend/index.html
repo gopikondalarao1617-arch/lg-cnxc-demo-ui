@@ -151,6 +151,47 @@
     .result-row .label { font-weight: 700; min-width: 100px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
     .result-row .val { word-break: break-all; font-size: 13px; }
 
+    /* ── Note banner (post-upload pointer to the SFTP tab) ────────────────── */
+    .note-banner {
+      display: none; align-items: flex-start; gap: 10px; margin-top: 14px;
+      background: #eff6ff; border: 1px solid #93c5fd; color: #1e40af;
+      border-radius: 12px; padding: 12px 16px; font-size: 12.5px; font-weight: 500; line-height: 1.5;
+    }
+    .note-banner.visible { display: flex; }
+    .note-banner .link-btn {
+      background: none; border: none; color: #1d4ed8; font-weight: 700;
+      text-decoration: underline; cursor: pointer; padding: 0; font-size: inherit;
+    }
+
+    /* ── SFTP status panel ─────────────────────────────────────────────────── */
+    .status-card {
+      border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px;
+      background: #f8fafc;
+    }
+    .status-row {
+      display: flex; justify-content: space-between; align-items: baseline;
+      padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 13px;
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-row .label { color: #64748b; font-weight: 600; }
+    .status-row .val { color: #0f172a; font-weight: 600; word-break: break-all; text-align: right; margin-left: 12px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .badge.success { background: #dcfce7; color: #166534; }
+    .badge.fail    { background: #fee2e2; color: #991b1b; }
+    .badge.pending { background: #f1f5f9; color: #64748b; }
+    .status-empty { text-align: center; color: #94a3b8; font-size: 13px; padding: 24px 0; }
+    .btn-refresh {
+      margin-top: 16px; width: 100%; padding: 11px;
+      background: #fff; border: 1.5px solid #e2e8f0; color: #475569;
+      font-size: 13px; font-weight: 700; border-radius: 10px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-refresh:hover { border-color: #c8102e; color: #c8102e; }
+
     /* ── Footer ────────────────────────────────────────────────────────────── */
     .footer {
       text-align: center; margin-top: 18px;
@@ -177,7 +218,7 @@
     <div class="card">
       <div class="tabs">
         <button class="tab active" onclick="switchTab('upload', this)">⬆&nbsp; Upload Feed</button>
-
+        <button class="tab" onclick="switchTab('sftp', this)">📡&nbsp; SFTP</button>
       </div>
 
       <!-- ── Upload Panel ─────────────────────────────────────────────────── -->
@@ -186,7 +227,9 @@
         <div class="panel-sub">
           Drop an Excel file below. Each row's <strong>Score</strong> (0–1) is computed
           automatically from phone/email/URL completeness, then the leads are
-          uploaded to S3 via the LG Leads API.
+          uploaded to S3 via the LG Leads API, the scored file is pushed via SFTP
+          for campaign calling, and Score = 0 leads with an active email get a
+          chat-bot invite.
         </div>
 
         <!-- Drop zone -->
@@ -215,6 +258,8 @@
           <span class="pipe-arrow">›</span>
           <div class="pipe-step" id="pipe-s3"><span class="pipe-icon">🗄️</span>S3</div>
           <span class="pipe-arrow">›</span>
+          <div class="pipe-step" id="pipe-sftp"><span class="pipe-icon">📡</span>SFTP</div>
+          <span class="pipe-arrow">›</span>
           <div class="pipe-step" id="pipe-email"><span class="pipe-icon">📧</span>Email</div>
           <span class="pipe-arrow">›</span>
           <div class="pipe-step" id="pipe-done"><span class="pipe-icon">✅</span>Done</div>
@@ -236,6 +281,30 @@
           <div class="result-title" id="resultTitle"></div>
           <div id="resultBody"></div>
         </div>
+
+        <!-- Post-upload note pointing to the SFTP tab -->
+        <div class="note-banner" id="noteBanner">
+          <span>ℹ️</span>
+          <span>File uploaded and scored successfully. Open the
+            <button class="link-btn" id="gotoSftpTab">SFTP tab</button>
+            to view the campaign-calling delivery status.</span>
+        </div>
+      </div>
+
+      <!-- ── SFTP Panel ───────────────────────────────────────────────────── -->
+      <div class="tab-panel" id="panel-sftp">
+        <div class="panel-title">SFTP Delivery Status</div>
+        <div class="panel-sub">
+          After every upload, the scored file (Score column included — required by
+          the IC Dial campaign-calling logic) is automatically pushed via SFTP.
+          This tab shows the status of the most recent delivery.
+        </div>
+
+        <div id="sftpStatusArea">
+          <div class="status-empty">No SFTP push yet. Upload a file on the first tab to trigger one.</div>
+        </div>
+
+        <button class="btn-refresh" id="btnRefreshSftp">↻ Refresh status</button>
       </div>
 
     </div>
@@ -258,6 +327,10 @@
     const resultEl      = document.getElementById("result");
     const resultTitle   = document.getElementById("resultTitle");
     const resultBody    = document.getElementById("resultBody");
+    const noteBanner    = document.getElementById("noteBanner");
+    const gotoSftpTab   = document.getElementById("gotoSftpTab");
+    const sftpStatusArea = document.getElementById("sftpStatusArea");
+    const btnRefreshSftp = document.getElementById("btnRefreshSftp");
 
     let selectedFile = null;
 
@@ -266,6 +339,7 @@
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('panel-' + name).classList.add('active');
+      if (name === 'sftp') loadSftpStatus();
     }
 
     function setPipe(id, state) {
@@ -274,7 +348,7 @@
       if (state) el.classList.add(state);
     }
     function resetPipeline() {
-      ['pipe-file','pipe-score','pipe-s3','pipe-email','pipe-done'].forEach(id => setPipe(id, null));
+      ['pipe-file','pipe-score','pipe-s3','pipe-sftp','pipe-email','pipe-done'].forEach(id => setPipe(id, null));
     }
 
     function formatBytes(b) {
@@ -283,7 +357,7 @@
       return (b/1048576).toFixed(1) + " MB";
     }
 
-    function hideResult() { resultEl.className = "result"; }
+    function hideResult() { resultEl.className = "result"; noteBanner.classList.remove("visible"); }
     function resetProgress() {
       progressWrap.classList.remove("visible");
       progressBar.style.width = "0%";
@@ -328,6 +402,50 @@
 
     fileRemove.addEventListener("click", clearFile);
 
+    gotoSftpTab.addEventListener("click", () => {
+      switchTab('sftp', document.querySelectorAll('.tab')[1]);
+    });
+
+    function sftpBadge(status) {
+      if (!status) return '<span class="badge pending">Pending</span>';
+      if (status.success) return '<span class="badge success">Delivered</span>';
+      if (status.skippedReason) return '<span class="badge pending">Skipped</span>';
+      return '<span class="badge fail">Failed</span>';
+    }
+
+    function renderSftpStatus(payload) {
+      const status = payload && payload.last;
+      if (!status) {
+        sftpStatusArea.innerHTML = `<div class="status-empty">No SFTP push yet. Upload a file on the first tab to trigger one.</div>`;
+        return;
+      }
+      const reason = status.error || status.skippedReason || '';
+      sftpStatusArea.innerHTML = `
+        <div class="status-card">
+          <div class="status-row"><span class="label">Status</span><span class="val">${sftpBadge(status)}</span></div>
+          <div class="status-row"><span class="label">File</span><span class="val">${status.filename || '—'}</span></div>
+          <div class="status-row"><span class="label">Records</span><span class="val">${status.recordCount ?? '—'}</span></div>
+          <div class="status-row"><span class="label">Remote path</span><span class="val">${status.remotePath || '—'}</span></div>
+          <div class="status-row"><span class="label">Host</span><span class="val">${status.host || '—'}</span></div>
+          <div class="status-row"><span class="label">Uploaded at</span><span class="val">${status.uploadedAt ? new Date(status.uploadedAt).toLocaleString() : '—'}</span></div>
+          ${reason ? `<div class="status-row"><span class="label">Detail</span><span class="val">${reason}</span></div>` : ''}
+        </div>
+      `;
+    }
+
+    async function loadSftpStatus() {
+      sftpStatusArea.innerHTML = `<div class="status-empty">Loading…</div>`;
+      try {
+        const resp = await fetch("/sftp/status");
+        const data = await resp.json();
+        renderSftpStatus(data);
+      } catch (err) {
+        sftpStatusArea.innerHTML = `<div class="status-empty">Failed to load status: ${err.message}</div>`;
+      }
+    }
+
+    btnRefreshSftp.addEventListener("click", loadSftpStatus);
+
     btnSend.addEventListener("click", async () => {
       if (!selectedFile) return;
 
@@ -351,6 +469,11 @@
         const data = await resp.json();
 
         setPipe('pipe-s3', 'done');
+        setPipe('pipe-sftp', 'active');
+        progressBar.style.width = "80%";
+        progressLabel.textContent = "Pushing scored file via SFTP…";
+
+        setPipe('pipe-sftp', data.sftpSummary?.success ? 'done' : 'active');
         setPipe('pipe-email', 'active');
         progressBar.style.width = "90%";
         progressLabel.textContent = "Emailing Score = 0 leads…";
@@ -366,6 +489,11 @@
             ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}${es.lastError ? ` — ${es.lastError}` : ''}`
             : 'No Score = 0 leads with an active email';
 
+          const sf = data.sftpSummary || {};
+          const sftpStatus = sf.success
+            ? `Delivered to ${sf.remotePath || sf.host || 'SFTP server'}`
+            : (sf.skippedReason || sf.error || 'Not delivered');
+
           resultEl.className = "result success visible";
           resultTitle.textContent = "✅ Upload complete";
           resultBody.innerHTML = `
@@ -373,8 +501,10 @@
             <div class="result-row"><span class="label">Records</span><span class="val">${data.recordCount}</span></div>
             <div class="result-row"><span class="label">Avg. Score</span><span class="val">${data.averageScore}</span></div>
             <div class="result-row"><span class="label">API</span><span class="val">${data.apiResult?.message || 'Uploaded successfully'}</span></div>
+            <div class="result-row"><span class="label">SFTP</span><span class="val">${sftpStatus}</span></div>
             <div class="result-row"><span class="label">Chat invites</span><span class="val">${emailStatus}</span></div>
           `;
+          noteBanner.classList.add("visible");
         } else {
           resultEl.className = "result error visible";
           resultTitle.textContent = "✗ Upload failed";
