@@ -311,7 +311,7 @@
 
         <!-- Send button -->
         <button class="btn-send" id="btnSend" disabled>
-          <span>⬆</span> Send to S3
+          <span>⬆</span> Upload to SFTP
         </button>
 
         <!-- Progress -->
@@ -472,6 +472,10 @@
     // the file picker and drag-and-drop, since drag-and-drop bypasses the
     // <input accept> filter entirely.
     function handleFileSelection(file) {
+      // Clear the previous upload's result/note banner as soon as a new file
+      // is picked - previously an old "Upload complete" panel stayed visible
+      // alongside a new file-type error until the next successful upload.
+      hideResult();
       hideFileError();
 
       if (!hasSupportedExtension(file)) {
@@ -493,6 +497,7 @@
       fileInfoEl.classList.remove("visible");
       dropZone.style.display = "block";
       btnSend.disabled = true;
+      hideResult();
       hideFileError();
       resetPipeline();
     }
