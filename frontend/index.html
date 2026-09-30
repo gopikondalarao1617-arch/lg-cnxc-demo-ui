@@ -101,6 +101,13 @@
     }
     .file-remove:hover { color: #ef4444; }
 
+    /* ── Inline file validation error ──────────────────────────────────────── */
+    .file-error {
+      display: none; margin-top: 12px; background: #fef2f2; border: 1px solid #f87171;
+      border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #991b1b; font-weight: 500;
+    }
+    .file-error.visible { display: block; }
+
     /* ── Pipeline ──────────────────────────────────────────────────────────── */
     .pipeline {
       display: flex; align-items: center; margin-top: 18px;
@@ -284,6 +291,9 @@
           <button class="file-remove" id="fileRemove" title="Remove">✕</button>
         </div>
 
+        <!-- Inline validation error (unsupported type, duplicate, etc.) -->
+        <div class="file-error" id="fileError"></div>
+
         <!-- Pipeline -->
         <div class="pipeline">
           <div class="pipe-step" id="pipe-file"><span class="pipe-icon">📄</span>File</div>
@@ -373,6 +383,7 @@
     const fileNameEl    = document.getElementById("fileName");
     const fileSizeEl    = document.getElementById("fileSize");
     const fileRemove    = document.getElementById("fileRemove");
+    const fileErrorEl   = document.getElementById("fileError");
     const btnSend       = document.getElementById("btnSend");
     const progressWrap  = document.getElementById("progressWrap");
     const progressBar   = document.getElementById("progressBar");
@@ -391,6 +402,24 @@
 
     let selectedFile = null;
     let allReports = [];
+    // Files successfully uploaded earlier in this session (name+size key),
+    // used to warn before an accidental re-upload of the same file.
+    const uploadedFiles = new Set();
+    const SUPPORTED_EXTENSIONS = [".xlsx", ".xls"];
+
+    function fileKey(file) { return file.name.toLowerCase() + "|" + file.size; }
+    function hasSupportedExtension(file) {
+      const name = file.name.toLowerCase();
+      return SUPPORTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+    }
+    function showFileError(message) {
+      fileErrorEl.textContent = message;
+      fileErrorEl.classList.add("visible");
+    }
+    function hideFileError() {
+      fileErrorEl.classList.remove("visible");
+      fileErrorEl.textContent = "";
+    }
 
     function switchTab(name, btn) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -421,6 +450,10 @@
       progressWrap.classList.remove("visible");
       progressBar.style.width = "0%";
       progressLabel.textContent = "Uploading…";
+      // Without this, a failed upload left the pipeline strip permanently
+      // showing whichever step was "active" at the moment of failure (looked
+      // stuck on e.g. "S3" forever) even though the progress bar itself hid.
+      resetPipeline();
     }
 
     function setFile(file) {
@@ -435,17 +468,37 @@
       setPipe('pipe-file', 'done');
     }
 
+    // Validates the file (type, duplicate) before accepting it - used by both
+    // the file picker and drag-and-drop, since drag-and-drop bypasses the
+    // <input accept> filter entirely.
+    function handleFileSelection(file) {
+      hideFileError();
+
+      if (!hasSupportedExtension(file)) {
+        showFileError(`"${file.name}" is not a supported file type. Please choose a .xlsx or .xls file.`);
+        return;
+      }
+
+      if (uploadedFiles.has(fileKey(file))) {
+        const proceed = confirm(`"${file.name}" was already uploaded earlier in this session. Upload it again?`);
+        if (!proceed) return;
+      }
+
+      setFile(file);
+    }
+
     function clearFile() {
       selectedFile = null;
       fileInput.value = "";
       fileInfoEl.classList.remove("visible");
       dropZone.style.display = "block";
       btnSend.disabled = true;
+      hideFileError();
       resetPipeline();
     }
 
     fileInput.addEventListener("change", (e) => {
-      if (e.target.files[0]) setFile(e.target.files[0]);
+      if (e.target.files[0]) handleFileSelection(e.target.files[0]);
     });
 
     ["dragenter", "dragover"].forEach(evt =>
@@ -456,7 +509,7 @@
     );
     dropZone.addEventListener("drop", (e) => {
       const file = e.dataTransfer.files[0];
-      if (file) setFile(file);
+      if (file) handleFileSelection(file);
     });
 
     fileRemove.addEventListener("click", clearFile);
@@ -605,6 +658,7 @@
       if (!selectedFile) return;
 
       hideResult();
+      hideFileError();
       btnSend.disabled = true;
       progressWrap.classList.add("visible");
       progressBar.style.width = "30%";
@@ -623,6 +677,16 @@
         const resp = await fetch("/upload", { method: "POST", body: formData });
         const data = await resp.json();
 
+        // Only advance the pipeline past S3 once the server actually
+        // confirms success - previously every step was marked "done"
+        // unconditionally, which showed a false "all done" pipeline even
+        // when the upload had failed (e.g. unsupported file type).
+        if (!data.success) {
+          throw new Error(data.error || "Upload failed.");
+        }
+
+        uploadedFiles.add(fileKey(selectedFile));
+
         setPipe('pipe-s3', 'done');
         setPipe('pipe-sftp', 'active');
         progressBar.style.width = "80%";
@@ -638,37 +702,31 @@
         setPipe('pipe-done', 'done');
         progressLabel.textContent = "Done";
 
-        if (data.success) {
-          const es = data.emailSummary || {};
-          const emailStatus = es.attempted
-            ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}${es.lastError ? ` — ${es.lastError}` : ''}`
-            : 'No Score = 0 leads with an active email';
+        const es = data.emailSummary || {};
+        const emailStatus = es.attempted
+          ? `${es.sent} sent${es.failed ? `, ${es.failed} failed` : ''} (of ${es.attempted})${es.skippedReason ? ` — ${es.skippedReason}` : ''}${es.lastError ? ` — ${es.lastError}` : ''}`
+          : 'No Score = 0 leads with an active email';
 
-          const sf = data.sftpSummary || {};
-          const sftpStatus = sf.success
-            ? `Delivered to ${sf.remotePath || sf.host || 'SFTP server'}`
-            : (sf.skippedReason || sf.error || 'Not delivered');
+        const sf = data.sftpSummary || {};
+        const sftpStatus = sf.success
+          ? `Delivered to ${sf.remotePath || sf.host || 'SFTP server'}`
+          : (sf.skippedReason || sf.error || 'Not delivered');
 
-          resultEl.className = "result success visible";
-          resultTitle.textContent = "✅ Upload complete";
-          resultBody.innerHTML = `
-            <div class="result-row"><span class="label">File</span><span class="val">${data.filename}</span></div>
-            <div class="result-row"><span class="label">Records</span><span class="val">${data.recordCount}</span></div>
-            <div class="result-row"><span class="label">Avg. Score</span><span class="val">${data.averageScore}</span></div>
-            <div class="result-row"><span class="label">API</span><span class="val">${data.apiResult?.message || 'Uploaded successfully'}</span></div>
-            <div class="result-row"><span class="label">SFTP</span><span class="val">${sftpStatus}</span></div>
-            <div class="result-row"><span class="label">Chat invites</span><span class="val">${emailStatus}</span></div>
-          `;
-          noteBanner.classList.add("visible");
-        } else {
-          resultEl.className = "result error visible";
-          resultTitle.textContent = "✗ Upload failed";
-          resultBody.innerHTML = `<div class="result-row"><span class="label">Error</span><span class="val">${data.error}</span></div>`;
-        }
+        resultEl.className = "result success visible";
+        resultTitle.textContent = "✅ Upload complete";
+        resultBody.innerHTML = `
+          <div class="result-row"><span class="label">File</span><span class="val">${escapeHtml(data.filename)}</span></div>
+          <div class="result-row"><span class="label">Records</span><span class="val">${data.recordCount}</span></div>
+          <div class="result-row"><span class="label">Avg. Score</span><span class="val">${data.averageScore}</span></div>
+          <div class="result-row"><span class="label">API</span><span class="val">${escapeHtml(data.apiResult?.message || 'Uploaded successfully')}</span></div>
+          <div class="result-row"><span class="label">SFTP</span><span class="val">${escapeHtml(sftpStatus)}</span></div>
+          <div class="result-row"><span class="label">Chat invites</span><span class="val">${escapeHtml(emailStatus)}</span></div>
+        `;
+        noteBanner.classList.add("visible");
       } catch (err) {
         resultEl.className = "result error visible";
         resultTitle.textContent = "✗ Upload failed";
-        resultBody.innerHTML = `<div class="result-row"><span class="label">Error</span><span class="val">${err.message}</span></div>`;
+        resultBody.innerHTML = `<div class="result-row"><span class="label">Error</span><span class="val">${escapeHtml(err.message)}</span></div>`;
       } finally {
         btnSend.disabled = false;
         setTimeout(resetProgress, 800);

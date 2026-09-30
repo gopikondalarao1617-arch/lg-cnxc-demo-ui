@@ -689,6 +689,21 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   }
 });
 
+// ── Error handler for /upload — multer's fileFilter (unsupported file type)
+// and file-size-limit rejections call next(err) instead of throwing inside
+// the route handler above, so without this they'd fall through to Express's
+// default HTML error page. The frontend's `await resp.json()` would then
+// throw a cryptic "Unexpected token '<'" parse error instead of showing the
+// actual "Only .xlsx / .xls files are allowed." message, and (since that
+// throw happens before any further pipeline UI updates run) the upload
+// pipeline strip would visually stay stuck on whichever step was active.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err) {
+    return res.status(400).json({ success: false, error: err.message || "Upload failed." });
+  }
+  next(err);
+});
+
 // ── Start server ──────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\nLG Leads Upload Server running at http://localhost:${PORT}`);
