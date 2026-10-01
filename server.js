@@ -2,12 +2,19 @@ const express       = require("express");
 const multer        = require("multer");
 const path          = require("path");
 const fs            = require("fs");
+const dns           = require("dns");
 const crypto        = require("crypto");
 const XLSX          = require("xlsx");
 const axios         = require("axios");
 const nodemailer    = require("nodemailer");
 const SftpClient    = require("ssh2-sftp-client");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
+
+// Render's containers have no outbound IPv6 route. Hosts with both A and
+// AAAA records (e.g. smtp.gmail.com) can otherwise resolve to an IPv6
+// address first, failing instantly with ENETUNREACH instead of connecting
+// over IPv4. This forces IPv4 first for every DNS lookup in the process.
+dns.setDefaultResultOrder("ipv4first");
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -358,6 +365,9 @@ function createMailTransporter() {
     port,
     secure: process.env.SMTP_SECURE === "true" || port === 465,
     auth: { user, pass },
+    // Belt-and-braces alongside the global dns.setDefaultResultOrder above -
+    // forces this specific socket to resolve/connect over IPv4 only.
+    family: 4,
     // Fail fast instead of hanging the /upload request for minutes if the
     // SMTP host is slow/unreachable/blocked (e.g. an outbound port issue).
     connectionTimeout: 8000,
