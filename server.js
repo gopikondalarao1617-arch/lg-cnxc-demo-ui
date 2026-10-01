@@ -351,7 +351,22 @@ function buildWelcomeEmailHtml(name, contactId, chatLink) {
 // a normal network). The HTTPS API avoids that class of problem altogether.
 const IS_SENDGRID = /sendgrid/i.test(process.env.SMTP_HOST || "");
 
-function createMailTransporter() {
+// Lazily-created, cached transporter - resolved on first use (async, see why
+// below).
+let mailTransporterPromise = null;
+
+// Render's containers have no outbound IPv6 route. Hosts with both A and AAAA
+// records (e.g. smtp.gmail.com) can still end up attempted over IPv6 even with
+// dns.setDefaultResultOrder('ipv4first') and an explicit family:4 passed to
+// nodemailer - Node's newer dual-stack "Happy Eyeballs" connection logic in
+// net/tls can still race/attempt the IPv6 address regardless (confirmed via
+// live testing: still got ENETUNREACH on an IPv6 address on both port 587 and
+// 465 even with those in place). The only fully reliable fix is to resolve
+// the hostname to a literal IPv4 address ourselves and hand nodemailer that IP
+// directly - there's no hostname left for Node to re-resolve/race over IPv6.
+// tls.servername is set separately so SNI + certificate hostname validation
+// still works correctly against an IP-literal connection target.
+async function createMailTransporter() {
   if (IS_SENDGRID) return null; // handled via HTTPS API instead, see sendOneEmail()
 
   const host = process.env.SMTP_HOST;
@@ -360,14 +375,17 @@ function createMailTransporter() {
   if (!host || !user || !pass) return null;
 
   const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
+
+  const { address: ipv4Address } = await dns.promises.lookup(host, { family: 4 });
+  console.log(`  → SMTP: resolved ${host} to IPv4 ${ipv4Address} (forcing IPv4-only connection)`);
+
   return nodemailer.createTransport({
-    host,
+    host: ipv4Address,
     port,
-    secure: process.env.SMTP_SECURE === "true" || port === 465,
+    secure,
     auth: { user, pass },
-    // Belt-and-braces alongside the global dns.setDefaultResultOrder above -
-    // forces this specific socket to resolve/connect over IPv4 only.
-    family: 4,
+    tls: { servername: host }, // SNI + cert hostname validation against the real name, not the IP
     // Fail fast instead of hanging the /upload request for minutes if the
     // SMTP host is slow/unreachable/blocked (e.g. an outbound port issue).
     connectionTimeout: 8000,
@@ -376,11 +394,14 @@ function createMailTransporter() {
   });
 }
 
-const mailTransporter = createMailTransporter();
+function getMailTransporter() {
+  if (!mailTransporterPromise) mailTransporterPromise = createMailTransporter();
+  return mailTransporterPromise;
+}
 
 function isMailConfigured() {
   if (IS_SENDGRID) return !!process.env.SMTP_PASS; // SendGrid API key doubles as SMTP_PASS
-  return !!mailTransporter;
+  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
 // Sends a single email via SendGrid's HTTPS API (v3 /mail/send).
@@ -405,7 +426,8 @@ async function sendOneEmailViaSendGridApi({ fromName, fromAddress, to, subject, 
 
 // Sends a single email via a generic SMTP transporter (any non-SendGrid host).
 async function sendOneEmailViaSmtp({ fromName, fromAddress, to, subject, html }) {
-  await mailTransporter.sendMail({
+  const transporter = await getMailTransporter();
+  await transporter.sendMail({
     from: `"${fromName}" <${fromAddress}>`,
     to,
     subject,
