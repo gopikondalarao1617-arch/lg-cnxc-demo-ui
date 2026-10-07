@@ -665,6 +665,16 @@ function sendFormPage(res, title, message, statusCode = 200) {
   res.status(statusCode).send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.card{max-width:520px;padding:32px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.35)}h1{margin:0 0 12px;color:#0f172a;font-size:22px}p{margin:0;color:#475569;line-height:1.6}</style></head><body><main class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`);
 }
 
+function getSafeIcFeedErrorMessage(err) {
+  if (err.response?.status) {
+    return `The call service returned HTTP ${err.response.status}. Please contact the campaign administrator if the problem continues.`;
+  }
+  if (err.code === "ECONNABORTED") {
+    return "The call service timed out. Please try again shortly.";
+  }
+  return "The call service could not be reached. Please try again later.";
+}
+
 // ── GET /health ───────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
@@ -749,7 +759,7 @@ app.post("/submit-form", async (req, res) => {
     sendFormPage(res, "Your call request was submitted", "Thank you. Our virtual agent will call the number you provided shortly.");
   } catch (err) {
     console.error(`✗ IC Feed call request failed for ContactID ${contactId}:`, err.response?.data || err.message);
-    sendFormPage(res, "Unable to submit your request", "We could not submit your call request. Please try again later.", 502);
+    sendFormPage(res, "Unable to submit your request", getSafeIcFeedErrorMessage(err), 502);
   }
 });
 
