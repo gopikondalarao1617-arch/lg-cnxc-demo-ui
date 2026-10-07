@@ -726,7 +726,7 @@ app.get("/submit-form", async (req, res) => {
   }
 });
 
-// ── POST /submit-form — queue an IC Feed call without holding the browser ───
+// ── POST /submit-form — submit the IC Feed call request server-side ──────────
 app.post("/submit-form", async (req, res) => {
   const contactId = String(req.body?.contactId ?? "").trim().slice(0, 100);
   const phone = normalisePhone(req.body?.phone);
@@ -742,16 +742,14 @@ app.post("/submit-form", async (req, res) => {
     const lead = await getLeadByContactId(contactId);
     if (!lead) return sendFormPage(res, "Lead not found", "We could not find the lead information for this link.", 404);
 
-    // Deliberately do not await the external call request: the form response
-    // returns immediately while the same IC Feed protocol as sendDynamicLeads
-    // creates the outbound voice-call lead in the background.
-    void submitVoiceCall(lead, phone).catch((err) => {
-      console.error(`✗ IC Feed call request failed for ContactID ${contactId}:`, err.response?.data || err.message);
-    });
+    // Wait for IC Feed to accept the lead before confirming success. A detached
+    // promise can be interrupted when a Render request completes, and would
+    // otherwise show a success page even if the call request later failed.
+    await submitVoiceCall(lead, phone);
     sendFormPage(res, "Your call request was submitted", "Thank you. Our virtual agent will call the number you provided shortly.");
   } catch (err) {
-    console.error("✗ Failed to submit lead form:", err.response?.data || err.message);
-    sendFormPage(res, "Unable to submit your request", "Please try again later.", 502);
+    console.error(`✗ IC Feed call request failed for ContactID ${contactId}:`, err.response?.data || err.message);
+    sendFormPage(res, "Unable to submit your request", "We could not submit your call request. Please try again later.", 502);
   }
 });
 
