@@ -661,6 +661,22 @@ async function submitVoiceCall(lead, phone) {
   console.log(`  ✓ IC Feed call request accepted for ContactID ${lead.ContactID ?? "unknown"} — HTTP ${response.status}`);
 }
 
+// The voice yflow identifies an inbound call by looking up its number against
+// DirectPhone/MobilePhone in the LG lead store. Score-0 email leads have no
+// phone number until they submit this form, so persist the supplied number
+// first. This lets the flow load the real ContactName rather than its fallback
+// demo record when the dialler connects the call.
+async function storeSubmittedPhoneForVoiceLookup(lead, phone) {
+  const updatedLead = {
+    ...lead,
+    MobilePhone: phone,
+    phone_number: phone,
+  };
+  await uploadViaApi([updatedLead]);
+  console.log(`  ✓ Stored submitted phone for ContactID ${lead.ContactID ?? "unknown"}`);
+  return updatedLead;
+}
+
 function sendFormPage(res, title, message, statusCode = 200) {
   res.status(statusCode).send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.card{max-width:520px;padding:32px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.35)}h1{margin:0 0 12px;color:#0f172a;font-size:22px}p{margin:0;color:#475569;line-height:1.6}</style></head><body><main class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`);
 }
@@ -752,10 +768,11 @@ app.post("/submit-form", async (req, res) => {
     const lead = await getLeadByContactId(contactId);
     if (!lead) return sendFormPage(res, "Lead not found", "We could not find the lead information for this link.", 404);
 
+    const updatedLead = await storeSubmittedPhoneForVoiceLookup(lead, phone);
     // Wait for IC Feed to accept the lead before confirming success. A detached
     // promise can be interrupted when a Render request completes, and would
     // otherwise show a success page even if the call request later failed.
-    await submitVoiceCall(lead, phone);
+    await submitVoiceCall(updatedLead, phone);
     sendFormPage(res, "Your call request was submitted", "Thank you. Our virtual agent will call the number you provided shortly.");
   } catch (err) {
     console.error(`✗ IC Feed call request failed for ContactID ${contactId}:`, err.response?.data || err.message);
