@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LG Product Assistant — Request a call</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(150deg, #0a1628 0%, #0d2137 50%, #0a1f30 100%); min-height: 100vh; padding: 36px 24px 48px; }
+    .wrapper { width: 100%; max-width: 640px; margin: 0 auto; }
+    .brand { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; color: #fff; }
+    .brand-mark { width: 46px; height: 46px; border-radius: 13px; background: linear-gradient(135deg, #c8102e, #e63950); display: flex; align-items: center; justify-content: center; font-size: 22px; }
+    .brand-name { font-size: 18px; font-weight: 800; }.brand-sub { color: rgba(255,255,255,.55); font-size: 13px; margin-top: 2px; }
+    .card { background: #fff; border-radius: 20px; box-shadow: 0 32px 80px rgba(0,0,0,.4); padding: 32px; }
+    h1 { color: #0f172a; font-size: 22px; margin-bottom: 8px; }.intro { color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    .details { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 22px; }
+    .detail { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-size: 13px; }.detail:last-child { border-bottom: 0; }.label { color: #64748b; font-weight: 700; }.value { color: #0f172a; overflow-wrap: anywhere; }
+    label { color: #334155; display: block; font-size: 13px; font-weight: 700; margin-bottom: 7px; } input { width: 100%; border: 1.5px solid #cbd5e1; border-radius: 10px; color: #0f172a; font-size: 16px; outline: none; padding: 13px 14px; } input:focus { border-color: #c8102e; box-shadow: 0 0 0 3px rgba(200,16,46,.1); }.hint { color: #64748b; font-size: 12px; line-height: 1.5; margin: 7px 0 20px; }
+    button { width: 100%; border: 0; border-radius: 11px; background: #c8102e; color: #fff; cursor: pointer; font-size: 15px; font-weight: 800; padding: 14px; } button:hover { background: #a90d26; }.footer { color: rgba(255,255,255,.35); font-size: 11px; letter-spacing: .05em; margin-top: 18px; text-align: center; }
+    @media (max-width: 520px) { .card { padding: 24px; }.detail { grid-template-columns: 1fr; gap: 3px; } }
+  </style>
+</head>
+<body>
+  <main class="wrapper">
+    <div class="brand"><div class="brand-mark">🎯</div><div><div class="brand-name">LG Product Assistant</div><div class="brand-sub">Request a call from our virtual agent</div></div></div>
+    <section class="card">
+      <h1>Request a call</h1>
+      <p class="intro">Please enter the best number to reach you. The details below were pre-filled from the lead information we received.</p>
+      <div class="details">{{LEAD_DETAILS}}</div>
+      <form method="POST" action="/submit-form">
+        <input type="hidden" name="contactId" value="{{CONTACT_ID}}" />
+        <label for="phone">Phone number</label>
+        <input id="phone" name="phone" type="tel" inputmode="tel" placeholder="+6581234567" required autofocus />
+        <p class="hint">Use the international format, including the country code (for example, +65 for Singapore).</p>
+        <button type="submit">Submit form and request a call</button>
+      </form>
+    </section>
+    <div class="footer">IXHello · LG Product Assistant</div>
+  </main>
+</body>
+</html>

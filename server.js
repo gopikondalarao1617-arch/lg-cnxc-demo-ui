@@ -50,7 +50,7 @@ function isAuthenticated(req) {
 
 // ── Auth middleware (protects all routes except /auth/*, /health, /chat) ──────
 app.use((req, res, next) => {
-  const open = ["/auth/login", "/auth/logout", "/auth/status", "/health", "/chat", "/chat-widget"];
+  const open = ["/auth/login", "/auth/logout", "/auth/status", "/health", "/chat", "/chat-widget", "/submit-form"];
   if (open.includes(req.path) || req.path.startsWith("/auth/")) return next();
   if (isAuthenticated(req)) return next();
   if (req.headers.accept?.includes("text/html")) {
@@ -310,24 +310,33 @@ function buildChatLink(req, contactId) {
   return base + "/chat?contactId=" + encodeURIComponent(contactId);
 }
 
-function buildWelcomeEmailHtml(name, contactId, chatLink) {
+function buildSubmitFormLink(req, contactId) {
+  const base = (process.env.PUBLIC_BASE_URL || (req.protocol + "://" + req.get("host"))).replace(/\/$/, "");
+  return base + "/submit-form?contactId=" + encodeURIComponent(contactId);
+}
+
+function buildWelcomeEmailHtml(name, contactId, chatLink, submitFormLink) {
   const safeName = escapeHtml(name || "there");
   const safeContactId = escapeHtml(contactId);
   const safeLink = escapeHtml(chatLink);
+  const safeSubmitFormLink = escapeHtml(submitFormLink);
   return [
     '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">',
     '<div style="max-width:520px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.08);">',
     '<div style="background:linear-gradient(135deg,#c8102e,#e63950);padding:24px 28px;"><div style="font-size:18px;font-weight:800;color:#fff;">LG</div></div>',
     '<div style="padding:28px;">',
     '<p style="font-size:16px;color:#0f172a;margin:0 0 16px;">Hi ' + safeName + ',</p>',
-    '<p style="font-size:14px;color:#334155;line-height:1.6;margin:0 0 16px;">Thank you for showing interest in LG products! We would love to help you find the right solution &mdash; our virtual assistant is ready to chat with you now.</p>',
+    '<p style="font-size:14px;color:#334155;line-height:1.6;margin:0 0 16px;">We received your email contact from our leads file. You can chat with our bot now, or submit your phone number to request a call from our virtual agent.</p>',
     // Table-based "bulletproof" button: Outlook desktop (Word rendering engine)
     // strips unsupported CSS (linear-gradient, display:inline-block + padding
     // on <a>) which silently collapses the old anchor-only button to nothing
     // visible, even though the underlying <a href> link tracking still shows
     // up on hover. A solid bgcolor on a <table>/<td> renders reliably there.
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:24px auto;"><tr><td bgcolor="#c8102e" style="border-radius:10px;">',
-    '<a href="' + safeLink + '" style="background-color:#c8102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Chat with us now</a>',
+    '<a href="' + safeLink + '" style="background-color:#c8102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Chat with us Now</a>',
+    '</td></tr></table>',
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 24px;"><tr><td bgcolor="#0f172a" style="border-radius:10px;">',
+    '<a href="' + safeSubmitFormLink + '" style="background-color:#0f172a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Submit Form</a>',
     '</td></tr></table>',
     // Plain-text fallback link so the URL is always visible/clickable even if
     // an email client strips all styling from the button above.
@@ -451,7 +460,7 @@ async function sendQualificationEmails(req, targets) {
 
   const fromName    = process.env.EMAIL_FROM_NAME || "LG Lead Qualification";
   const fromAddress = process.env.EMAIL_FROM || process.env.SMTP_USER;
-  const subject     = "Thanks for your interest in LG — chat with us";
+  const subject     = "LG — choose how you would like to connect";
   const sendOneEmail = IS_SENDGRID ? sendOneEmailViaSendGridApi : sendOneEmailViaSmtp;
 
   const results = await Promise.allSettled(
@@ -460,13 +469,14 @@ async function sendQualificationEmails(req, targets) {
       const contactId = String(lead.ContactID ?? "");
       const email     = String(lead.email || "").trim();
       const chatLink  = buildChatLink(req, contactId);
+      const submitFormLink = buildSubmitFormLink(req, contactId);
 
       return sendOneEmail({
         fromName,
         fromAddress,
         to: email,
         subject,
-        html: buildWelcomeEmailHtml(name, contactId, chatLink),
+        html: buildWelcomeEmailHtml(name, contactId, chatLink, submitFormLink),
       });
     })
   );
@@ -586,6 +596,75 @@ async function fetchCallReports() {
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 
+// ── Public lead form / IC Feed call request ─────────────────────────────────
+// The browser never receives the LG API bearer token. The server loads the
+// original lead by ContactID, displays the spreadsheet details as read-only,
+// and reloads that same record when the form is submitted.
+async function getLeadByContactId(contactId) {
+  const apiUrl = process.env.LG_API_URL;
+  const token = process.env.LG_BEARER_TOKEN;
+  if (!apiUrl) throw new Error("LG_API_URL env var is not set.");
+  if (!token) throw new Error("LG_BEARER_TOKEN env var is not set.");
+
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/getUserdataByContactID`;
+  const response = await axios.get(endpoint, {
+    params: { contactId },
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 15000,
+  });
+  return response.data?.lead;
+}
+
+function normalisePhone(raw) {
+  const value = String(raw ?? "").trim().replace(/[\s()-]/g, "");
+  if (value.startsWith("+")) return value;
+  if (value.startsWith("00")) return `+${value.slice(2)}`;
+  return `+${value}`;
+}
+
+function buildLeadDetailsHtml(lead) {
+  const excluded = new Set(["DirectPhone", "MobilePhone", "phone_number", "Score"]);
+  return Object.entries(lead)
+    .filter(([key, value]) => !excluded.has(key) && value != null && String(value).trim() !== "")
+    .map(([key, value]) => (
+      '<div class="detail"><div class="label">' + escapeHtml(key) + '</div><div class="value">' + escapeHtml(value) + '</div></div>'
+    ))
+    .join("") || '<div class="detail"><div class="value">Your lead details are ready.</div></div>';
+}
+
+function isIcFeedConfigured() {
+  return !!(process.env.ICFEED_USERNAME && process.env.ICFEED_PASSWORD && process.env.ICFEED_CAMPAIGN_ID);
+}
+
+async function submitVoiceCall(lead, phone) {
+  const username = process.env.ICFEED_USERNAME;
+  const password = process.env.ICFEED_PASSWORD;
+  const campaignId = process.env.ICFEED_CAMPAIGN_ID;
+  if (!username || !password || !campaignId) {
+    throw new Error("IC Feed is not configured (set ICFEED_USERNAME, ICFEED_PASSWORD, and ICFEED_CAMPAIGN_ID).");
+  }
+
+  const excluded = new Set(["phone_number", "DirectPhone", "MobilePhone", "time_to_call", "TimeToCall"]);
+  const leadData = Object.fromEntries(Object.entries(lead).filter(([key]) => !excluded.has(key)));
+  const payload = {
+    SName: process.env.SERVICE_NAME || "AMX",
+    CampaignID: campaignId,
+    Mobile: phone,
+    ...leadData,
+    TimeToCall: new Date().toISOString(),
+  };
+  const auth = Buffer.from(`${username}:${password}`).toString("base64");
+  const response = await axios.post(process.env.ICFEED_API_URL || "https://icfeed.cvgapps.co.uk/api/leads", payload, {
+    headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+    timeout: 15000,
+  });
+  console.log(`  ✓ IC Feed call request accepted for ContactID ${lead.ContactID ?? "unknown"} — HTTP ${response.status}`);
+}
+
+function sendFormPage(res, title, message, statusCode = 200) {
+  res.status(statusCode).send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(title)}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:#0d2137;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.card{max-width:520px;padding:32px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.35)}h1{margin:0 0 12px;color:#0f172a;font-size:22px}p{margin:0;color:#475569;line-height:1.6}</style></head><body><main class="card"><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main></body></html>`);
+}
+
 // ── GET /health ───────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 
@@ -626,6 +705,54 @@ app.get("/chat", (req, res) => {
     .replace(/{{WIDGET_FLOW_ID}}/g, escapeHtml(CHAT_WIDGET_FLOW_ID));
 
   res.set("Content-Type", "text/html").send(html);
+});
+
+// ── GET /submit-form — public, pre-filled lead form ─────────────────────────
+const submitFormTemplate = fs.readFileSync(path.join(__dirname, "frontend", "submit-form.template.html"), "utf8");
+app.get("/submit-form", async (req, res) => {
+  const contactId = typeof req.query.contactId === "string" ? req.query.contactId.trim().slice(0, 100) : "";
+  if (!contactId) return sendFormPage(res, "Invalid link", "This form link does not include a Contact ID.", 400);
+
+  try {
+    const lead = await getLeadByContactId(contactId);
+    if (!lead) return sendFormPage(res, "Lead not found", "We could not find the lead information for this link.", 404);
+    const html = submitFormTemplate
+      .replace(/{{CONTACT_ID}}/g, escapeHtml(contactId))
+      .replace(/{{LEAD_DETAILS}}/g, buildLeadDetailsHtml(lead));
+    res.set("Content-Type", "text/html").send(html);
+  } catch (err) {
+    console.error("✗ Failed to load lead form:", err.response?.data || err.message);
+    sendFormPage(res, "Unable to load your details", "Please try again later.", 502);
+  }
+});
+
+// ── POST /submit-form — queue an IC Feed call without holding the browser ───
+app.post("/submit-form", async (req, res) => {
+  const contactId = String(req.body?.contactId ?? "").trim().slice(0, 100);
+  const phone = normalisePhone(req.body?.phone);
+  if (!contactId || !/^\+\d{7,15}$/.test(phone)) {
+    return sendFormPage(res, "Check your phone number", "Enter a valid international phone number, including the country code.", 400);
+  }
+  if (!isIcFeedConfigured()) {
+    console.error("✗ IC Feed call request rejected: IC Feed environment variables are not configured.");
+    return sendFormPage(res, "Call requests are unavailable", "Please use Chat with us Now or try again later.", 503);
+  }
+
+  try {
+    const lead = await getLeadByContactId(contactId);
+    if (!lead) return sendFormPage(res, "Lead not found", "We could not find the lead information for this link.", 404);
+
+    // Deliberately do not await the external call request: the form response
+    // returns immediately while the same IC Feed protocol as sendDynamicLeads
+    // creates the outbound voice-call lead in the background.
+    void submitVoiceCall(lead, phone).catch((err) => {
+      console.error(`✗ IC Feed call request failed for ContactID ${contactId}:`, err.response?.data || err.message);
+    });
+    sendFormPage(res, "Your call request was submitted", "Thank you. Our virtual agent will call the number you provided shortly.");
+  } catch (err) {
+    console.error("✗ Failed to submit lead form:", err.response?.data || err.message);
+    sendFormPage(res, "Unable to submit your request", "Please try again later.", 502);
+  }
 });
 
 // ── GET /chat-widget — bare widget-only page, embedded via iframe by ─────────
