@@ -336,7 +336,7 @@ function buildWelcomeEmailHtml(name, contactId, chatLink, submitFormLink) {
     '<a href="' + safeLink + '" style="background-color:#c8102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Chat with us Now</a>',
     '</td></tr></table>',
     '<table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto 24px;"><tr><td bgcolor="#0f172a" style="border-radius:10px;">',
-    '<a href="' + safeSubmitFormLink + '" style="background-color:#0f172a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Submit Form</a>',
+    '<a href="' + safeSubmitFormLink + '" style="background-color:#0f172a;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 28px;border-radius:10px;display:inline-block;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">Request a call</a>',
     '</td></tr></table>',
     // Plain-text fallback link so the URL is always visible/clickable even if
     // an email client strips all styling from the button above.
