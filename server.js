@@ -557,10 +557,9 @@ async function uploadViaApi(leads, rawFileBase64, rawFileName) {
 }
 
 // ── Fetch call reports via the LG Leads API (→ report Lambda, reads S3) ─────
-// GET /lg/report returns { format: "xlsx-base64", filename, data } - the
-// report workbook written by every sendFeedOutcome/log_disconnect_report
-// call from the yflow. Parsed here into plain row objects for the portal's
-// "Call Reports" tab, newest first.
+// The portal requests compact JSON rows rather than downloading, decoding, and
+// parsing the entire report workbook on every tab refresh. This keeps report
+// loading responsive as the S3 workbook grows.
 async function fetchCallReports() {
   const apiUrl = process.env.LG_API_URL;
   const token = process.env.LG_BEARER_TOKEN;
@@ -569,30 +568,13 @@ async function fetchCallReports() {
 
   const endpoint = `${apiUrl.replace(/\/$/, "")}/report`;
   const response = await axios.get(endpoint, {
+    params: { format: "json" },
     headers: { Authorization: `Bearer ${token}` },
-    timeout: 30000,
+    timeout: 28000,
   });
 
-  const { data } = response.data || {};
-  if (!data) return [];
-
-  const buffer = Buffer.from(data, "base64");
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
-  // Newest first - Timestamp column may be a JS Date (exceljs date cell) or
-  // an ISO string depending on how the row was written.
-  return rows
-    .map((row) => ({
-      contactId: String(row["Contact ID"] ?? "").trim(),
-      customerName: String(row["Customer Name"] ?? "").trim(),
-      leadId: String(row["Lead ID"] ?? "").trim(),
-      qualification: String(row["Lead Qualification"] ?? "").trim(),
-      bantScore: String(row["BANT Score"] ?? "").trim(),
-      callSummary: String(row["Call Summary"] ?? "").trim(),
-      timestamp: row["Timestamp"] instanceof Date ? row["Timestamp"].toISOString() : String(row["Timestamp"] ?? ""),
-    }))
+  const reports = Array.isArray(response.data?.reports) ? response.data.reports : [];
+  return reports
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
 

@@ -644,14 +644,21 @@
 
     async function loadReports() {
       reportListArea.innerHTML = `<div class="status-empty">Loading…</div>`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 35000);
       try {
-        const resp = await fetch("/reports");
+        const resp = await fetch("/reports", { signal: controller.signal });
         const data = await resp.json();
         if (!data.success) throw new Error(data.error || "Failed to load reports");
         allReports = data.reports || [];
         applyReportFilters();
       } catch (err) {
-        reportListArea.innerHTML = `<div class="status-empty">Failed to load reports: ${escapeHtml(err.message)}</div>`;
+        const message = err.name === "AbortError"
+          ? "The report request timed out. Please try again."
+          : err.message;
+        reportListArea.innerHTML = `<div class="status-empty">Failed to load reports: ${escapeHtml(message)}</div>`;
+      } finally {
+        clearTimeout(timeout);
       }
     }
 
