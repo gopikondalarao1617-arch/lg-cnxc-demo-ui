@@ -573,7 +573,23 @@ async function fetchCallReports() {
     timeout: 28000,
   });
 
-  const reports = Array.isArray(response.data?.reports) ? response.data.reports : [];
+  // During rollout, accept the legacy workbook response too. The new report
+  // Lambda returns compact JSON, but this prevents an empty tab if Render is
+  // updated before the Lambda deployment completes.
+  let reports = Array.isArray(response.data?.reports) ? response.data.reports : [];
+  if (reports.length === 0 && response.data?.data) {
+    const workbook = XLSX.read(Buffer.from(response.data.data, "base64"), { type: "buffer" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    reports = XLSX.utils.sheet_to_json(sheet, { defval: "" }).map((row) => ({
+        contactId: String(row["Contact ID"] ?? "").trim(),
+        customerName: String(row["Customer Name"] ?? "").trim(),
+        leadId: String(row["Lead ID"] ?? "").trim(),
+        qualification: String(row["Lead Qualification"] ?? "").trim(),
+        bantScore: String(row["BANT Score"] ?? "").trim(),
+        callSummary: String(row["Call Summary"] ?? "").trim(),
+        timestamp: row["Timestamp"] instanceof Date ? row["Timestamp"].toISOString() : String(row["Timestamp"] ?? ""),
+      }));
+  }
   return reports
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 }
